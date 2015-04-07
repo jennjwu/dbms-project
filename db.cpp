@@ -1007,6 +1007,7 @@ int sem_insert(token_list *t_list){
 									head->next = temp;
 									head = temp;
 								}
+								//printf("cur token string    %s\n", head->tok_string);
 
 								cur = cur->next;
 								if ((cur->tok_value != S_COMMA) && (cur->tok_value != S_RIGHT_PAREN))
@@ -1054,6 +1055,7 @@ int sem_insert(token_list *t_list){
 										head->next = temp;
 										head = temp;
 									}
+									//printf("cur token string    %s\n", head->tok_string);
 
 									//continue to next token
 									cur = cur->next;
@@ -1083,7 +1085,7 @@ int sem_insert(token_list *t_list){
 								}
 								else
 								{	//nullable
-
+									printf("in nullable\n");
 									//temporary token holder
 									token_list *temp = (token_list *)calloc(1, sizeof(token_list));
 									//temp->tok_class = cur->tok_class; //1 for keyword
@@ -1104,7 +1106,8 @@ int sem_insert(token_list *t_list){
 										head->next = temp;
 										head = temp;
 									}
-
+									//printf("cur token string    %s\n", head->tok_string);
+									
 									//continue to next token
 									cur = cur->next;
 									if ((cur->tok_value != S_COMMA) && (cur->tok_value != S_RIGHT_PAREN))
@@ -1188,6 +1191,7 @@ int sem_insert(token_list *t_list){
 					}
 					else
 					{
+						
 						//update table file header contents
 						ptr->num_records++;
 						ptr->file_size += ptr->record_size; //add one record size
@@ -1206,7 +1210,7 @@ int sem_insert(token_list *t_list){
 							unsigned char item_len = 0;
 							if (llist->tok_value == STRING_LITERAL)
 							{
-								//printf("item:      '%s'\n", llist->tok_string);
+								printf("item:      '%s'\n", llist->tok_string);
 								item_len = strlen(llist->tok_string);
 								fwrite(&item_len, sizeof(unsigned char), 1, fhandle);
 								fwrite(&llist->tok_string, item_len, 1, fhandle);
@@ -1214,7 +1218,7 @@ int sem_insert(token_list *t_list){
 							else if (llist->tok_value == INT_LITERAL)
 							{
 								int item = atoi(llist->tok_string);
-								//printf("item:      %d\n", item);
+								printf("item:      %d\n", item);
 								item_len = sizeof(int); //4 bytes for int
 								fwrite(&item_len, sizeof(unsigned char), 1, fhandle);
 								fwrite(&item, item_len, 1, fhandle);
@@ -1222,8 +1226,8 @@ int sem_insert(token_list *t_list){
 							else if (llist->tok_value == K_NULL)
 							{
 								printf("item:      %s\n", llist->tok_string);
-								item_len = llist->tok_class; //hack to get null'ed col_len
-								unsigned char counter = item_len;
+								item_len = 0;
+								int counter = llist->tok_class; //hack to get null'ed col_len
 								int item = 0; //zero out column
 								fwrite(&item_len, sizeof(unsigned char), 1, fhandle);
 								while (counter > 0)
@@ -1278,14 +1282,13 @@ int sem_select(token_list *t_list){
 	token_list *values = NULL, *head = NULL; //to hold retrieved token list
 
 	cur = t_list;
-	if ( (cur->tok_value != S_STAR) && (cur->tok_class != identifier) 
-		&& (cur->tok_class != function_name) )
-	{
-		// Error
+	if ((cur->tok_value != S_STAR) && (cur->tok_class != identifier) && (cur->tok_class != function_name))
+	{	// Error
 		rc = INVALID_SELECT_STATEMENT;
 		cur->tok_value = INVALID;
 	}
-	else {//select stmt has *, identifer or aggregate func
+	else 
+	{	//select stmt has *, identifer or aggregate func
 		if (cur->tok_value == S_STAR)
 		{	//do select * here
 			cur = cur->next;
@@ -1331,7 +1334,9 @@ int sem_select(token_list *t_list){
 							//test if col_len is longer or col_name is longer - use whichever is longer
 							int width = (col_entry->col_len > strlen(col_entry->col_name)) ? 
 								col_entry->col_len : strlen(col_entry->col_name);
-							width += 2;
+							if (col_entry->col_type == T_INT)
+								width = 10;
+							width += 2; //for spaces on either size
 							for (int j = 0; j < width; j++)
 								strcat(format, "-");
 							strcat(format, "+");
@@ -1362,7 +1367,7 @@ int sem_select(token_list *t_list){
 						else
 						{
 							_fstat(_fileno(fhandle), &file_stat);
-							printf("%s size = %d\n", str, file_stat.st_size);
+							//printf("%s size = %d\n", str, file_stat.st_size);
 							recs = (table_file_header*)calloc(1, file_stat.st_size);
 
 							if (!recs)
@@ -1373,8 +1378,8 @@ int sem_select(token_list *t_list){
 							{
 								fread(recs, file_stat.st_size, 1, fhandle);
 								fflush(fhandle);
-								fclose(fhandle);
-
+								
+								
 								if (recs->file_size != file_stat.st_size)
 								{
 									printf("ptr file_size: %d\n", recs->file_size);
@@ -1384,32 +1389,166 @@ int sem_select(token_list *t_list){
 								}
 								else
 								{
+									int rows_tb_size = recs->file_size - recs->record_offset;
 									int record_size = recs->record_size;
 									int offset = recs->record_offset;
 									int num_records = recs->num_records;
-									printf("record size is:          %d\n", record_size);
-									printf("record offset at:        %d\n", offset);
-									printf("num of records in here:  %d\n", num_records);
-								}
-							}
-						}
-							
-					}
+									//printf("bytes to copy for data:  %d\n", rows_tb_size);
+									//printf("record size is:          %d\n", record_size);
+									//printf("record offset at:        %d\n", offset);
+									//printf("num of records in here:  %d\n", num_records);
+									
+									fseek(fhandle, offset, SEEK_SET);
+									unsigned char *buffer;
+									buffer = (unsigned char*)calloc(1, record_size * 100);
+									if (!buffer)
+										rc = MEMORY_ERROR;
+									else
+									{
+										fread(buffer, rows_tb_size, 1, fhandle);
+										int i = 0, rec_cnt = 0, rows = 1;
+										while (i < rows_tb_size)
+										{
+											//printf("at index: %d\n", i);
+											printf("|");
+											cd_entry  *col = NULL;
+											int k, row_col = 0;
+											for (k = 0, col = (cd_entry*)((char*)tab_entry + tab_entry->cd_offset);
+												k < tab_entry->num_columns; k++, col++)
+											{	//while there are columns in tpd
+												
+												unsigned char col_len = (unsigned char)buffer[i];
+												//printf("read col len:  %u\n", col_len);
+												//printf("true col len:  %d\n", col->col_len);
+
+												if ((int)col_len == col->col_len)
+												{
+													if (col->col_type == T_INT)
+													{	//for integer data
+														int b = i + 1;
+														//printf("   col is int\n");
+														char *int_b;
+														int elem;
+														int_b = (char*)calloc(1, sizeof(int));
+														for (int a = 0; a < sizeof(int); a++)
+														{
+															int_b[a] = buffer[b + a];
+														}
+														memcpy(&elem, int_b, sizeof(int));
+														printf(" %10d |", elem);
+														
+													}
+													else if (col->col_type == T_CHAR)
+													{	//for char data
+														//printf("   col is char\n");
+														int b = i + 1;
+														char *str_b;
+														int len = col->col_len + 1;
+														str_b = (char*)calloc(1, len);
+														for (int a = 0; a < col->col_len; a++)
+														{
+															str_b[a] = buffer[b + a];
+														}
+														str_b[len-1] = '\0';
+														printf(" %s |", str_b);
+													}
+												}
+												else
+												{
+													if ((int)col_len == 0)
+													{
+														//printf("  col is null\n");
+														int b = i + 1;
+														char *null_b;
+														int len = 0;
+														if (col->col_type == T_INT)
+															len = 10;
+														else if (col->col_type == T_CHAR)
+														{
+															len = col->col_len;
+														}
+														
+														null_b = (char*)calloc(1, len);
+														for (int a = 0; a < len; a++)
+														{
+															strcat(null_b, "-");
+														}
+														printf(" %s |", null_b);
+														
+													}
+														
+													else
+														rc = DBFILE_CORRUPTION; //bc len stored not match col_len
+												}
+													/*
+														if (col->col_type == T_INT)
+														{
+															printf("in int: ");
+															char *elem_arr;
+															int elem;
+															elem_arr = (char*)calloc(1, col->col_len);
+															for (int a = 0; a < col->col_len; a++, j++)
+															{
+																elem_arr[a] = buffer[j];
+															}
+															memcpy(&elem, elem_arr, sizeof(elem));
+															printf("%d\n", elem);
+														}
+														else if (col->col_type == T_CHAR)
+														{
+															printf("in char: the char has not be done yet\n");
+
+															/*char *elem_arr;
+															char elem[MAX_TOK_LEN+1];
+															elem_arr = (char*)calloc(1, col->col_len);
+															for (int a = 0; a < col->col_len; a++, i++)
+															{
+																elem_arr[a] = buffer[i];
+																printf("%c", elem_arr[a]);
+															}
+															strcpy(elem, elem_arr);
+															//printf("%s\n\n", elem);
+														}
+													}
+												}
+												else{
+													rc = DBFILE_CORRUPTION;
+												}*/
+												i += (int)col_len+1; //move to next item/column
+											}
+
+											printf("\n");
+											rec_cnt += record_size; //skip to next record
+											i = rec_cnt;
+
+										}//end while
+										printf("%s\n", format);
+									}
+									
+									
+
+
+								}//file is not corrupt
+
+								fclose(fhandle);
+							}//not memory error
+						}//not file open error
+					}//not table not exist
 				}
 			}
-		}
+		}//select * stmt
 		else if (cur->tok_class == function_name)
-		{//found aggregate function name
+		{
 			printf("found aggregate func: %s\n", cur->tok_string);
 			printf("aggregation function not yet implemented");
-		}
+		}//aggregate function in select
 		else if (cur->tok_class == identifier)
-		{//found identifier
+		{
 			printf("cur: %s\n", cur->tok_string);
 			printf("other select not yet implemented");
-		}
+		}//found identifier in select
 		else
-		{//if not table name or not aggregate function name
+		{	//if not table name or not aggregate function name
 			rc = INVALID_SELECT_STATEMENT;
 			cur->tok_value = INVALID;
 		}

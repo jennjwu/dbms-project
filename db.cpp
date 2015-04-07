@@ -1273,6 +1273,9 @@ int sem_select(token_list *t_list){
 	int rc = 0;
 	token_list *cur;
 	tpd_entry *tab_entry = NULL;
+	struct _stat file_stat;
+	table_file_header *recs = NULL;
+	token_list *values = NULL, *head = NULL; //to hold retrieved token list
 
 	cur = t_list;
 	if ( (cur->tok_value != S_STAR) && (cur->tok_class != identifier) 
@@ -1314,57 +1317,83 @@ int sem_select(token_list *t_list){
 						strcat(str, ".tab");
 						//printf("Opening %s file...\n", str);
 						
-						FILE *fptr;
-						fptr = fopen(str, "rt");
-						if (fptr == NULL)
-							perror("Error opening file\n");
+						//get column headers
+						char format[MAX_PRINT_LEN], head[MAX_PRINT_LEN];
+						strcpy(format, "+");
+						strcpy(head, "|");
+
+						cd_entry  *col_entry = NULL;
+						int i;
+						for (i = 0, col_entry = (cd_entry*)((char*)tab_entry + tab_entry->cd_offset);
+							i < tab_entry->num_columns; i++, col_entry++)
+						{	//while there are columns in tpd
+								
+							//test if col_len is longer or col_name is longer - use whichever is longer
+							int width = (col_entry->col_len > strlen(col_entry->col_name)) ? 
+								col_entry->col_len : strlen(col_entry->col_name);
+							width += 2;
+							for (int j = 0; j < width; j++)
+								strcat(format, "-");
+							strcat(format, "+");
+
+							int diff = width - strlen(col_entry->col_name) - 1;
+							strcat(head, " ");
+							strcat(head, col_entry->col_name);
+							//printf("diff: %d\n", diff);
+							if (diff > 0)
+							{
+								for (int k = 0; k < diff; k++)
+									strcat(head, " ");
+							}
+							strcat(head, "|");
+							//printf("Column Name   (col_name) = %s\n", col_entry->col_name);
+							//printf("Column Length (col_len)  = %d\n", col_entry->col_len);
+						}
+
+						printf("%s\n", format);
+						printf("%s\n", head);
+						printf("%s\n", format);
+
+						FILE *fhandle = NULL;
+						if ((fhandle = fopen(str, "rbc")) == NULL)
+						{
+							rc = FILE_OPEN_ERROR;
+						}//end file open error
 						else
 						{
-							//get column headers
-							char format[MAX_PRINT_LEN], head[MAX_PRINT_LEN];
-							strcpy(format, "+");
-							strcpy(head, "|");
+							_fstat(_fileno(fhandle), &file_stat);
+							printf("%s size = %d\n", str, file_stat.st_size);
+							recs = (table_file_header*)calloc(1, file_stat.st_size);
 
-							cd_entry  *col_entry = NULL;
-							int i;
-							for (i = 0, col_entry = (cd_entry*)((char*)tab_entry + tab_entry->cd_offset);
-								i < tab_entry->num_columns; i++, col_entry++)
-							{	//while there are columns in tpd
-								
-								//test if col_len is longer or col_name is longer - use whichever is longer
-								int width = (col_entry->col_len > strlen(col_entry->col_name)) ? 
-									col_entry->col_len : strlen(col_entry->col_name);
-								width += 2;
-								for (int j = 0; j < width; j++)
-									strcat(format, "-");
-								strcat(format, "+");
+							if (!recs)
+							{
+								rc = MEMORY_ERROR;
+							}//end memory error
+							else
+							{
+								fread(recs, file_stat.st_size, 1, fhandle);
+								fflush(fhandle);
+								fclose(fhandle);
 
-								int diff = width - strlen(col_entry->col_name) - 1;
-								strcat(head, " ");
-								strcat(head, col_entry->col_name);
-								//printf("diff: %d\n", diff);
-								if (diff > 0)
+								if (recs->file_size != file_stat.st_size)
 								{
-									for (int k = 0; k < diff; k++)
-										strcat(head, " ");
+									printf("ptr file_size: %d\n", recs->file_size);
+									printf("in db corruption\n");
+									rc = DBFILE_CORRUPTION;
+									return rc;
 								}
-								strcat(head, "|");
-								//printf("Column Name   (col_name) = %s\n", col_entry->col_name);
-								//printf("Column Length (col_len)  = %d\n", col_entry->col_len);
+								else
+								{
+									int record_size = recs->record_size;
+									int offset = recs->record_offset;
+									int num_records = recs->num_records;
+									printf("record size is:          %d\n", record_size);
+									printf("record offset at:        %d\n", offset);
+									printf("num of records in here:  %d\n", num_records);
+								}
 							}
-
-							printf("%s\n", format);
-							printf("%s\n", head);
-							printf("%s\n", format);
-
-							//get data
-							printf("| ");
-							char ch;
-							while ((ch = fgetc(fptr)) != EOF)
-								printf("%c", ch);
 						}
-						fclose(fptr);
-						//printf("Done reading %s\n", str);
+							
 					}
 				}
 			}

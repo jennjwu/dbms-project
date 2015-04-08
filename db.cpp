@@ -66,7 +66,7 @@ int main(int argc, char** argv)
 				if ((tok_ptr->tok_class == error) ||
 					  (tok_ptr->tok_value == INVALID))
 				{
-					printf("\nError in the string: %s\n", tok_ptr->tok_string);
+					printf("Error in the string: %s\n", tok_ptr->tok_string);
 					printf("rc=%d\n", rc);
 					break;
 				}
@@ -955,6 +955,7 @@ int sem_insert(token_list *t_list){
 			cur = cur->next;
 			if (cur->tok_value != K_VALUES)
 			{	//Error
+				printf("values keyword missing\n");
 				rc = INVALID_INSERT_STATEMENT;
 				cur->tok_value = INVALID;
 			}
@@ -967,7 +968,7 @@ int sem_insert(token_list *t_list){
 					cur->tok_value = INVALID;
 				}
 				else
-				{	//R parantheses there, start col and val comparison
+				{	//L parantheses there, start col and val comparison
 					cur = cur->next;
 
 					cd_entry  *col_entry = NULL;
@@ -976,11 +977,16 @@ int sem_insert(token_list *t_list){
 					for (i = 0, col_entry = (cd_entry*)((char*)exist_entry + exist_entry->cd_offset);
 						i < exist_entry->num_columns; i++, col_entry++)
 					{	//while there are columns in tpd
-						if (cur->tok_value == EOC)
-						{	//Error
+						
+						if (cur->tok_value == S_COMMA)
+							cur = cur->next;
+
+						if (cur->tok_value == S_RIGHT_PAREN)
+						{
+							//Error
+							printf("number of columns and insert values don't match\n");
 							rc = INSERT_VAL_COL_LEN_MISMATCH;
 							cur->tok_value = INVALID;
-							return rc;
 						}
 						else
 						{	//else, if token list not shorter than number of columns, continue
@@ -1008,16 +1014,7 @@ int sem_insert(token_list *t_list){
 									head = temp;
 								}
 								//printf("cur token string    %s\n", head->tok_string);
-
 								cur = cur->next;
-								if ((cur->tok_value != S_COMMA) && (cur->tok_value != S_RIGHT_PAREN))
-								{
-									rc = INVALID_INSERT_STATEMENT;
-									cur->tok_value = INVALID;
-									return rc;
-								}
-								else //move to next token
-									cur = cur->next;
 							}//end int literal
 							else if ((cur->tok_value == STRING_LITERAL) && (col_entry->col_type == T_CHAR))
 							{	//for char or string literal
@@ -1035,15 +1032,6 @@ int sem_insert(token_list *t_list){
 									temp->tok_value = cur->tok_value;
 									strcpy(temp->tok_string, cur->tok_string);
 									temp->next = NULL;
-
-									//pad with spaces if shorter than col_len
-									/*while (diff > 0)
-									{
-										strcat(temp->tok_string, " ");
-										diff--;
-									}*/
-									//printf("column length is: %d\n", col_entry->col_len);
-									//printf("this is the string: '%s'\n", temp->tok_string);
 									
 									//set values linked list
 									if (values == NULL)
@@ -1060,14 +1048,7 @@ int sem_insert(token_list *t_list){
 
 									//continue to next token
 									cur = cur->next;
-									if ((cur->tok_value != S_COMMA) && (cur->tok_value != S_RIGHT_PAREN))
-									{
-										rc = INVALID_INSERT_STATEMENT;
-										cur->tok_value = INVALID;
-										return rc;
-									}
-									else //move to next token
-										cur = cur->next;
+									
 								}
 								else
 								{	//str size too long
@@ -1080,6 +1061,7 @@ int sem_insert(token_list *t_list){
 							{	//Check for not null constraint
 								if (col_entry->not_null)
 								{
+									printf("not null constraint\n");
 									rc = INSERT_NULL_FAILURE;
 									cur->tok_value = INVALID;
 									return rc;
@@ -1111,26 +1093,34 @@ int sem_insert(token_list *t_list){
 									
 									//continue to next token
 									cur = cur->next;
-									if ((cur->tok_value != S_COMMA) && (cur->tok_value != S_RIGHT_PAREN))
+									/*if ((cur->tok_value != S_COMMA) && (cur->tok_value != S_RIGHT_PAREN))
 									{
 										rc = INVALID_INSERT_STATEMENT;
 										cur->tok_value = INVALID;
 										return rc;
 									}
 									else //move to next token
-										cur = cur->next;
+										cur = cur->next;*/
 								}
 							}//end null
 							else
-							{	//Error
+							{
+								printf("type mismatch\n");
 								rc = INSERT_VALUE_TYPE_MISMATCH;
 								cur->tok_value = INVALID;
 								return rc;
 							}
 						}//if not EOC
 					}//end for
+
+					if (cur->tok_value == S_RIGHT_PAREN)
+					{
+						//got R parentheses
+						cur = cur->next;
+					}
+
 				}//end else col/val comparison
-			}//end else at R parentheses
+			}//end else at L parentheses
 		}//end else where table name found
 	}//end else for parsing
 
@@ -1271,6 +1261,7 @@ int sem_insert(token_list *t_list){
 	}//end insert
 	else
 	{	// there is extra stuff after R parantheses or extra values given
+		printf("here\n");
 		rc = INSERT_VAL_COL_LEN_MISMATCH;
 		cur->tok_value = INVALID;
 	}//end error on insert

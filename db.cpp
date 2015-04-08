@@ -48,8 +48,8 @@ int main(int argc, char** argv)
 						function_name,	// 6
 						terminator,		// 7
 						error			// 8*/
-			printf("%16s \t%d \t %d\n",tok_ptr->tok_string, tok_ptr->tok_class,
-				      tok_ptr->tok_value);
+			/*printf("%16s \t%d \t %d\n",tok_ptr->tok_string, tok_ptr->tok_class,
+				      tok_ptr->tok_value);*/
 			tok_ptr = tok_ptr->next;
 		}
     
@@ -335,7 +335,7 @@ int do_semantic(token_list *tok_list)
 	else if ((cur->tok_value == K_INSERT) &&
 					((cur->next != NULL) && (cur->next->tok_value == K_INTO)))
 	{
-		printf("INSERT statement\n");
+		printf("INSERT INTO statement\n");
 		cur_cmd = INSERT;
 		cur = cur->next->next;
 	}//end k_insert
@@ -643,7 +643,7 @@ int sem_create_table(token_list *t_list)
 					char str[MAX_IDENT_LEN + 1];
 					strcpy(str, tab_entry.table_name); //get table name
 					strcat(str, ".tab");
-					printf("Creating %s file...\n\n", str);
+					//printf("Creating %s file...\n\n", str);
 
 					FILE *fhandle = NULL;
 					
@@ -666,11 +666,11 @@ int sem_create_table(token_list *t_list)
 							ptr.file_header_flag = 0; //TODO: what is this for?
 							ptr.tpd_ptr = NULL;
 
-							printf("tfh file_size         = %d\n", ptr.file_size);
-							printf("tfh record_size       = %d\n", ptr.record_size);
-							printf("tfh num_records       = %d\n", ptr.num_records);
-							printf("tfh record_offset     = %d\n", ptr.record_offset);
-							printf("tfh file_header_flag  = %d\n", ptr.file_header_flag);
+							//printf("tfh file_size         = %d\n", ptr.file_size);
+							//printf("tfh record_size       = %d\n", ptr.record_size);
+							//printf("tfh num_records       = %d\n", ptr.num_records);
+							//printf("tfh record_offset     = %d\n", ptr.record_offset);
+							//printf("tfh file_header_flag  = %d\n", ptr.file_header_flag);
 
 							table_file_header *cur = NULL;
 							cur = (table_file_header*)calloc(1, sizeof(table_file_header));
@@ -691,7 +691,7 @@ int sem_create_table(token_list *t_list)
 						}
 					}//end create file
 
-					printf("\nDone creating %s\n", str);
+					printf("tablename is %s\n", str);
 					
 				}
 			}
@@ -986,7 +986,7 @@ int sem_insert(token_list *t_list){
 						{	//else, if token list not shorter than number of columns, continue
 							if ((cur->tok_value == INT_LITERAL) && (col_entry->col_type == T_INT))
 							{	//for int literal
-								printf("got int match!\n");
+								//printf("got int match!\n");
 								rec_size += col_entry->col_len + 1;
 
 								//temporary token holder
@@ -1022,25 +1022,26 @@ int sem_insert(token_list *t_list){
 							else if ((cur->tok_value == STRING_LITERAL) && (col_entry->col_type == T_CHAR))
 							{	//for char or string literal
 								int str_size = strlen(cur->tok_string);
-								printf("got char match! strlen: %d\n", str_size);
+								//printf("got char match! strlen: %d\n", str_size);
 
 								if (str_size <= col_entry->col_len)
 								{
-									int diff = col_entry->col_len - str_size;
+									//int diff = col_entry->col_len - str_size;
 
 									//temporary token holder
 									token_list *temp = (token_list *)calloc(1, sizeof(token_list));
-									temp->tok_class = cur->tok_class;
+									//temp->tok_class = cur->tok_class; 
+									temp->tok_class = col_entry->col_len; //hack to keep col max len
 									temp->tok_value = cur->tok_value;
 									strcpy(temp->tok_string, cur->tok_string);
 									temp->next = NULL;
 
 									//pad with spaces if shorter than col_len
-									while (diff > 0)
+									/*while (diff > 0)
 									{
 										strcat(temp->tok_string, " ");
 										diff--;
-									}
+									}*/
 									//printf("column length is: %d\n", col_entry->col_len);
 									//printf("this is the string: '%s'\n", temp->tok_string);
 									
@@ -1085,7 +1086,7 @@ int sem_insert(token_list *t_list){
 								}
 								else
 								{	//nullable
-									printf("in nullable\n");
+									//printf("in nullable\n");
 									//temporary token holder
 									token_list *temp = (token_list *)calloc(1, sizeof(token_list));
 									//temp->tok_class = cur->tok_class; //1 for keyword
@@ -1136,7 +1137,7 @@ int sem_insert(token_list *t_list){
 	//do insert (write to .tab)
 	if ((!rc) && (cur->tok_value == EOC))
 	{
-		printf("insert stmt end reached and it matches tpd!\n\n");
+		//printf("insert stmt end reached and it matches tpd!\n\n");
 
 		// Write to <table_name>.tab file
 		char str[MAX_IDENT_LEN + 1];
@@ -1145,7 +1146,7 @@ int sem_insert(token_list *t_list){
 		FILE *fhandle = NULL;
 		
 		//Open file for read
-		printf("Opening %s\n", str);
+		//printf("Opening %s\n", str);
 		if ((fhandle = fopen(str, "rbc")) == NULL)
 		{
 			rc = FILE_OPEN_ERROR;
@@ -1153,7 +1154,7 @@ int sem_insert(token_list *t_list){
 		else
 		{
 			_fstat(_fileno(fhandle), &file_stat);
-			printf("%s size = %d\n", str, file_stat.st_size);
+			//printf("%s size = %d\n", str, file_stat.st_size);
 
 			ptr = (table_file_header*)calloc(1, file_stat.st_size);
 			if (!ptr)
@@ -1168,7 +1169,7 @@ int sem_insert(token_list *t_list){
 
 				if (ptr->file_size != file_stat.st_size)
 				{
-					printf("ptr file_size: %d\n", ptr->file_size);
+					printf("%s file_size: %d\n", str, ptr->file_size);
 					printf("in db corruption\n");
 					rc = DBFILE_CORRUPTION;
 					return rc;
@@ -1176,10 +1177,10 @@ int sem_insert(token_list *t_list){
 				else
 				{
 					int old_size = 0;
-					printf("data read...\n");
-					printf("tab rec_size:        %d\n", ptr->record_size);
-					printf("tab num_rec:         %d\n", ptr->num_records);
-					printf("tab record_offset:   %d\n", ptr->record_offset);
+					//printf("data read...\n");
+					//printf("tab rec_size:        %d\n", ptr->record_size);
+					//printf("tab num_rec:         %d\n", ptr->num_records);
+					//printf("tab record_offset:   %d\n", ptr->record_offset);
 
 					old_size = ptr->file_size;
 					int rec_offset = ptr->record_offset;
@@ -1196,36 +1197,40 @@ int sem_insert(token_list *t_list){
 						ptr->num_records++;
 						ptr->file_size += ptr->record_size; //add one record size
 						ptr->tpd_ptr = NULL;
-						printf("tab new_file_size:   %d\n", ptr->file_size);
-						printf("tab new_num_rec:     %d\n\n", ptr->num_records);
+						printf("%s new size = %d\n", str, ptr->file_size);
+						//printf("tab new_file_size:   %d\n", ptr->file_size);
+						//printf("tab new_num_rec:     %d\n\n", ptr->num_records);
 
 						//write updated table file header
 						fwrite(ptr, file_stat.st_size, 1, fhandle);
 
 						//write new row entry
-						printf("checking llist now...\n");
+						//printf("checking llist now...\n");
 						token_list *llist = values;
 						while (llist != NULL)
 						{
 							unsigned char item_len = 0;
 							if (llist->tok_value == STRING_LITERAL)
 							{
-								printf("item:      '%s'\n", llist->tok_string);
+								//printf("item:      '%s'\n", llist->tok_string);
 								item_len = strlen(llist->tok_string);
+								//printf("strlen:   %d",item_len);
+								//printf("item_len:   %d\n", llist->tok_class);
+								//hack to get len of item (tok_class)
 								fwrite(&item_len, sizeof(unsigned char), 1, fhandle);
-								fwrite(&llist->tok_string, item_len, 1, fhandle);
+								fwrite(&llist->tok_string, llist->tok_class, 1, fhandle);
 							}
 							else if (llist->tok_value == INT_LITERAL)
 							{
 								int item = atoi(llist->tok_string);
-								printf("item:      %d\n", item);
+								//printf("item:      %d\n", item);
 								item_len = sizeof(int); //4 bytes for int
 								fwrite(&item_len, sizeof(unsigned char), 1, fhandle);
 								fwrite(&item, item_len, 1, fhandle);
 							}
 							else if (llist->tok_value == K_NULL)
 							{
-								printf("item:      %s\n", llist->tok_string);
+								//printf("item:      %s\n", llist->tok_string);
 								item_len = 0;
 								int counter = llist->tok_class; //hack to get null'ed col_len
 								int item = 0; //zero out column
@@ -1236,7 +1241,7 @@ int sem_insert(token_list *t_list){
 									counter--;
 								}
 							}
-							printf("item size: %d\n", item_len);
+							//printf("item size: %d\n", item_len);
 
 							llist = llist->next;
 						}
@@ -1246,8 +1251,8 @@ int sem_insert(token_list *t_list){
 						int cur_size = ftell(fhandle);
 
 						//padding rec with zeroes if rec_size was rounded up to 4 byte boundary
-						printf("current file size: %d\n", cur_size);
-						printf("file size should be: %d\n", ptr->file_size);
+						//printf("current file size: %d\n", cur_size);
+						//printf("file size should be: %d\n", ptr->file_size);
 						while (cur_size < ptr->file_size)
 						{
 							int pad = 0;
@@ -1262,7 +1267,7 @@ int sem_insert(token_list *t_list){
 			}//not memory error
 		}//file open for read
 
-		printf("Done with %s\n", str);
+		//printf("Done with %s\n", str);
 	}//end insert
 	else
 	{	// there is extra stuff after R parantheses or extra values given
@@ -1335,19 +1340,18 @@ int sem_select(token_list *t_list){
 							int width = (col_entry->col_len > strlen(col_entry->col_name)) ? 
 								col_entry->col_len : strlen(col_entry->col_name);
 							if (col_entry->col_type == T_INT)
-								width = 10;
-							width += 2; //for spaces on either size
+								width = 11;
 							for (int j = 0; j < width; j++)
 								strcat(format, "-");
 							strcat(format, "+");
 
 							int diff = width - strlen(col_entry->col_name) - 1;
-							strcat(head, " ");
+							//strcat(head, " ");
 							strcat(head, col_entry->col_name);
 							//printf("diff: %d\n", diff);
 							if (diff > 0)
 							{
-								for (int k = 0; k < diff; k++)
+								for (int k = 0; k < diff+1; k++)
 									strcat(head, " ");
 							}
 							strcat(head, "|");
@@ -1378,7 +1382,6 @@ int sem_select(token_list *t_list){
 							{
 								fread(recs, file_stat.st_size, 1, fhandle);
 								fflush(fhandle);
-								
 								
 								if (recs->file_size != file_stat.st_size)
 								{
@@ -1420,8 +1423,8 @@ int sem_select(token_list *t_list){
 												unsigned char col_len = (unsigned char)buffer[i];
 												//printf("read col len:  %u\n", col_len);
 												//printf("true col len:  %d\n", col->col_len);
-
-												if ((int)col_len == col->col_len)
+												
+												if ((int)col_len > 0)
 												{
 													if (col->col_type == T_INT)
 													{	//for integer data
@@ -1435,8 +1438,8 @@ int sem_select(token_list *t_list){
 															int_b[a] = buffer[b + a];
 														}
 														memcpy(&elem, int_b, sizeof(int));
-														printf(" %10d |", elem);
-														
+														printf("%11d|", elem);
+
 													}
 													else if (col->col_type == T_CHAR)
 													{	//for char data
@@ -1445,16 +1448,25 @@ int sem_select(token_list *t_list){
 														char *str_b;
 														int len = col->col_len + 1;
 														str_b = (char*)calloc(1, len);
-														for (int a = 0; a < col->col_len; a++)
+														for (int a = 0; a < len; a++)
 														{
 															str_b[a] = buffer[b + a];
 														}
-														str_b[len-1] = '\0';
-														printf(" %s |", str_b);
+														str_b[len - 1] = '\0';
+														printf("%s", str_b);
+														int str_len = strlen(str_b);
+														int width = (col->col_len > strlen(col->col_name)) ?
+															col->col_len : strlen(col->col_name);
+														while (str_len < width)
+														{
+															printf(" ");
+															str_len++;
+														}
+														printf("|");
 													}
 												}
 												else
-												{
+												{	//for null
 													if ((int)col_len == 0)
 													{
 														//printf("  col is null\n");
@@ -1462,71 +1474,57 @@ int sem_select(token_list *t_list){
 														char *null_b;
 														int len = 0;
 														if (col->col_type == T_INT)
-															len = 10;
+															len = 11;
 														else if (col->col_type == T_CHAR)
 														{
-															len = col->col_len;
+															len = (col->col_len > strlen(col->col_name)) ?
+																col->col_len : strlen(col->col_name);
+
+															//printf("len: %d  ", len);
 														}
-														
+
 														null_b = (char*)calloc(1, len);
-														for (int a = 0; a < len; a++)
-														{
-															strcat(null_b, "-");
-														}
-														printf(" %s |", null_b);
-														
-													}
-														
-													else
-														rc = DBFILE_CORRUPTION; //bc len stored not match col_len
-												}
-													/*
+														strcat(null_b, "-");
+														int str_len = strlen(null_b);
+														int width = (str_len > len) ? str_len : len;
+
+														//print to L or R depending on col type
 														if (col->col_type == T_INT)
 														{
-															printf("in int: ");
-															char *elem_arr;
-															int elem;
-															elem_arr = (char*)calloc(1, col->col_len);
-															for (int a = 0; a < col->col_len; a++, j++)
+															while (str_len < width)
 															{
-																elem_arr[a] = buffer[j];
+																printf(" ");
+																str_len++;
 															}
-															memcpy(&elem, elem_arr, sizeof(elem));
-															printf("%d\n", elem);
+															printf("%s|", null_b);
+
 														}
 														else if (col->col_type == T_CHAR)
 														{
-															printf("in char: the char has not be done yet\n");
-
-															/*char *elem_arr;
-															char elem[MAX_TOK_LEN+1];
-															elem_arr = (char*)calloc(1, col->col_len);
-															for (int a = 0; a < col->col_len; a++, i++)
+															//printf("%d    %d",str_len,width);
+															printf("%s", null_b);
+															while (str_len < width)
 															{
-																elem_arr[a] = buffer[i];
-																printf("%c", elem_arr[a]);
+																printf(" ");
+																str_len++;
 															}
-															strcpy(elem, elem_arr);
-															//printf("%s\n\n", elem);
+															printf("|");
 														}
-													}
-												}
-												else{
-													rc = DBFILE_CORRUPTION;
-												}*/
-												i += (int)col_len+1; //move to next item/column
-											}
 
+													}//if column is null
+													else
+														rc = DBFILE_CORRUPTION; //if byte is anything else
+												}
+												i += col->col_len+1; //move to next item/column
+											}
 											printf("\n");
 											rec_cnt += record_size; //skip to next record
 											i = rec_cnt;
-
 										}//end while
-										printf("%s\n", format);
+										if (num_records > 0)
+											printf("%s\n", format);//print last line
+										printf("%d rows selected.\n", num_records);
 									}
-									
-									
-
 
 								}//file is not corrupt
 
@@ -1563,8 +1561,8 @@ int initialize_tpd_list()
 	FILE *fhandle = NULL;
 	struct _stat file_stat;
 
-  /* Open for read */
-  if((fhandle = fopen("dbfile.bin", "rbc")) == NULL)
+	/* Open for read */
+	if((fhandle = fopen("dbfile.bin", "rbc")) == NULL)
 	{
 		if((fhandle = fopen("dbfile.bin", "wbc")) == NULL)
 		{

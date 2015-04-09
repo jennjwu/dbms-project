@@ -66,7 +66,7 @@ int main(int argc, char** argv)
 				if ((tok_ptr->tok_class == error) ||
 					  (tok_ptr->tok_value == INVALID))
 				{
-					printf("Error in the string: %s\n", tok_ptr->tok_string);
+					printf("\nError in the string: %s\n", tok_ptr->tok_string);
 					printf("rc=%d\n", rc);
 					break;
 				}
@@ -345,6 +345,19 @@ int do_semantic(token_list *tok_list)
 		cur_cmd = SELECT;
 		cur = cur->next;
 	} //end k_select
+	else if ((cur->tok_value == K_DELETE) && 
+					(cur->next != NULL) && (cur->next->tok_value == K_FROM))
+	{
+		printf("DELETE FROM statement\n");
+		cur_cmd = DELETE;
+		cur = cur->next;
+	}
+	else if ((cur->tok_value == K_UPDATE) && (cur->next != NULL))
+	{
+		printf("UPDATE statement\n");
+		cur_cmd = UPDATE;
+		cur = cur->next;
+	}
 	else
 	{
 		printf("Invalid statement\n");
@@ -356,1192 +369,33 @@ int do_semantic(token_list *tok_list)
 		switch(cur_cmd)
 		{
 			case CREATE_TABLE:
-						rc = sem_create_table(cur);
-						break;
+				rc = sem_create_table(cur);
+				break;
 			case DROP_TABLE:
-						rc = sem_drop_table(cur);
-						break;
+				rc = sem_drop_table(cur);
+				break;
 			case LIST_TABLE:
-						rc = sem_list_tables();
-						break;
+				rc = sem_list_tables();
+				break;
 			case LIST_SCHEMA:
-						rc = sem_list_schema(cur);
-						break;
+				rc = sem_list_schema(cur);
+				break;
 			case INSERT:
-						rc = sem_insert(cur); 
-						break;
+				rc = sem_insert(cur); 
+				break;
 			case SELECT:
-						rc = sem_select(cur);
-						break;
+				rc = sem_select(cur);
+				break;
+			case DELETE:
+				rc = sem_delete(cur);
+				break;
+			case UPDATE:
+				rc = sem_update(cur);
+				break;
 			default:
-					; /* no action */
-		}
-	}
-	
-	return rc;
-}
-
-int sem_create_table(token_list *t_list)
-{
-	int rc = 0;
-	token_list *cur;
-	tpd_entry tab_entry;
-	tpd_entry *new_entry = NULL;
-	bool column_done = false;
-	int cur_id = 0;
-	cd_entry	col_entry[MAX_NUM_COL];
-	int rec_size = 0;
-
-	memset(&tab_entry, '\0', sizeof(tpd_entry));
-	cur = t_list;
-	if ((cur->tok_class != keyword) && (cur->tok_class != identifier) &&
-			(cur->tok_class != type_name))
-	{	// Error
-		rc = INVALID_TABLE_NAME;
-		cur->tok_value = INVALID;
-	}
-	else
-	{
-		if ((new_entry = get_tpd_from_list(cur->tok_string)) != NULL)
-		{
-			rc = DUPLICATE_TABLE_NAME;
-			cur->tok_value = INVALID;
-		}
-		else
-		{
-			strcpy(tab_entry.table_name, cur->tok_string);
-			cur = cur->next;
-			if (cur->tok_value != S_LEFT_PAREN)
-			{	//Error
-				rc = INVALID_TABLE_DEFINITION;
-				cur->tok_value = INVALID;
-			}
-			else
-			{
-				memset(&col_entry, '\0', (MAX_NUM_COL * sizeof(cd_entry)));
-
-				/* Now build a set of column entries */
-				cur = cur->next;
-				do
-				{
-					if ((cur->tok_class != keyword) && (cur->tok_class != identifier) &&
-						(cur->tok_class != type_name))
-					{	// Error
-						rc = INVALID_COLUMN_NAME;
-						cur->tok_value = INVALID;
-					}
-					else
-					{
-						int i;
-						for(i = 0; i < cur_id; i++)
-						{	/* make column name case sensitive */
-							if (strcmp(col_entry[i].col_name, cur->tok_string)==0)
-							{
-								rc = DUPLICATE_COLUMN_NAME;
-								cur->tok_value = INVALID;
-								break;
-							}
-						}
-
-						if (!rc)
-						{
-							strcpy(col_entry[cur_id].col_name, cur->tok_string);
-							col_entry[cur_id].col_id = cur_id;
-							col_entry[cur_id].not_null = false;    /* set default */
-
-							//printf("col name: %s\n", col_entry[cur_id].col_name);
-
-							cur = cur->next;
-							if (cur->tok_class != type_name)
-							{	// Error
-								rc = INVALID_TYPE_NAME;
-								cur->tok_value = INVALID;
-							}
-							else
-							{	/* Set the column type here, int or char */
-								col_entry[cur_id].col_type = cur->tok_value;
-								
-								//printf("col type: %s\n", cur->tok_string);
-								
-								cur = cur->next;
-		
-								if (col_entry[cur_id].col_type == T_INT)
-								{
-									if ((cur->tok_value != S_COMMA) &&
-										  (cur->tok_value != K_NOT) &&
-										  (cur->tok_value != S_RIGHT_PAREN))
-									{
-										rc = INVALID_COLUMN_DEFINITION;
-										cur->tok_value = INVALID;
-									}
-								  else
-									{	//for int
-										col_entry[cur_id].col_len = sizeof(int);
-										rec_size += col_entry[cur_id].col_len + 1;
-										
-										if ((cur->tok_value == K_NOT) &&
-											  (cur->next->tok_value != K_NULL))
-										{
-											rc = INVALID_COLUMN_DEFINITION;
-											cur->tok_value = INVALID;
-										}	
-										else if ((cur->tok_value == K_NOT) &&
-											    (cur->next->tok_value == K_NULL))
-										{					
-											col_entry[cur_id].not_null = true;
-											cur = cur->next->next;
-										}
-	
-										if (!rc)
-										{
-											/* I must have either a comma or right paren */
-											if ((cur->tok_value != S_RIGHT_PAREN) &&
-												  (cur->tok_value != S_COMMA))
-											{
-												rc = INVALID_COLUMN_DEFINITION;
-												cur->tok_value = INVALID;
-											}
-											else
-											{
-												if (cur->tok_value == S_RIGHT_PAREN)
-												{
- 													column_done = true;
-												}
-												cur = cur->next;
-											}
-										}
-									}
-								}// end of S_INT processing
-								else
-								{	// It must be char()
-									if (cur->tok_value != S_LEFT_PAREN)
-									{
-										rc = INVALID_COLUMN_DEFINITION;
-										cur->tok_value = INVALID;
-									}
-									else
-									{	/* Enter char(n) processing */
-										cur = cur->next;
-		
-										if (cur->tok_value != INT_LITERAL)
-										{
-											rc = INVALID_COLUMN_LENGTH;
-											cur->tok_value = INVALID;
-										}
-										else
-										{	/* Got a valid integer - convert */
-											col_entry[cur_id].col_len = atoi(cur->tok_string);
-											rec_size += col_entry[cur_id].col_len + 1;
-											cur = cur->next;
-											
-											if (cur->tok_value != S_RIGHT_PAREN)
-											{
-												rc = INVALID_COLUMN_DEFINITION;
-												cur->tok_value = INVALID;
-											}
-											else
-											{
-												cur = cur->next;
-						
-												if ((cur->tok_value != S_COMMA) &&
-														(cur->tok_value != K_NOT) &&
-														(cur->tok_value != S_RIGHT_PAREN))
-												{
-													rc = INVALID_COLUMN_DEFINITION;
-													cur->tok_value = INVALID;
-												}
-												else
-												{
-													if ((cur->tok_value == K_NOT) &&
-														  (cur->next->tok_value != K_NULL))
-													{
-														rc = INVALID_COLUMN_DEFINITION;
-														cur->tok_value = INVALID;
-													}
-													else if ((cur->tok_value == K_NOT) &&
-																	 (cur->next->tok_value == K_NULL))
-													{					
-														col_entry[cur_id].not_null = true;
-														cur = cur->next->next;
-													}
-		
-													if (!rc)
-													{
-														/* I must have either a comma or right paren */
-														if ((cur->tok_value != S_RIGHT_PAREN) &&															  (cur->tok_value != S_COMMA))
-														{
-															rc = INVALID_COLUMN_DEFINITION;
-															cur->tok_value = INVALID;
-														}
-														else
-													  {
-															if (cur->tok_value == S_RIGHT_PAREN)
-															{
-																column_done = true;
-															}
-															cur = cur->next;
-														}
-													}
-												}
-											}
-										}	/* end char(n) processing */
-									}
-								} /* end char processing */
-							}
-						}  // duplicate column name
-					} // invalid column name
-
-					/* If rc=0, then get ready for the next column */
-					if (!rc)
-					{
-						cur_id++;
-					}
-
-				} while ((rc == 0) && (!column_done));
-	
-				if ((column_done) && (cur->tok_value != EOC))
-				{
-					rc = INVALID_TABLE_DEFINITION;
-					cur->tok_value = INVALID;
-				}
-
-				if (!rc)
-				{
-					/* Now finished building tpd and add it to the tpd list */
-					tab_entry.num_columns = cur_id;
-					tab_entry.tpd_size = sizeof(tpd_entry) + sizeof(cd_entry) *	tab_entry.num_columns;
-					tab_entry.cd_offset = sizeof(tpd_entry);
-					new_entry = (tpd_entry*)calloc(1, tab_entry.tpd_size);
-
-					if (new_entry == NULL)
-					{
-						rc = MEMORY_ERROR;
-					}
-					else
-					{	
-						memcpy((void*)new_entry,
-							     (void*)&tab_entry,
-									 sizeof(tpd_entry));
-		
-						memcpy((void*)((char*)new_entry + sizeof(tpd_entry)),
-									 (void*)col_entry,
-									 sizeof(cd_entry) * tab_entry.num_columns);
-						rc = add_tpd_to_list(new_entry);
-
-						free(new_entry);
-					}
-
-
-					// Round rec_size to higher 4-byte boundary
-					int rem = rec_size % 4;
-					if (rem != 0)
-						rec_size = (int)ceil(rec_size / 4.0) * 4;
-
-					//printf("rec_size: %d\n", rec_size);
-
-					//Create <table_name>.tab file
-					char str[MAX_IDENT_LEN + 1];
-					strcpy(str, tab_entry.table_name); //get table name
-					strcat(str, ".tab");
-					//printf("Creating %s file...\n\n", str);
-
-					FILE *fhandle = NULL;
-					
-					//Create and open file for read
-					if ((fhandle = fopen(str, "rbc")) == NULL)
-					{
-						if ((fhandle = fopen(str, "wbc")) == NULL)
-						{
-							rc = FILE_OPEN_ERROR;
-						}
-						else
-						{
-							//printf("creating table file header...\n");
-							table_file_header ptr;
-							memset(&ptr, '\0', sizeof(table_file_header));
-							ptr.record_size = rec_size;
-							ptr.num_records = 0; //no records yet
-							ptr.file_size = sizeof(table_file_header);
-							ptr.record_offset = sizeof(table_file_header);
-							ptr.file_header_flag = 0; //TODO: what is this for?
-							ptr.tpd_ptr = NULL;
-
-							//printf("tfh file_size         = %d\n", ptr.file_size);
-							//printf("tfh record_size       = %d\n", ptr.record_size);
-							//printf("tfh num_records       = %d\n", ptr.num_records);
-							//printf("tfh record_offset     = %d\n", ptr.record_offset);
-							//printf("tfh file_header_flag  = %d\n", ptr.file_header_flag);
-
-							table_file_header *cur = NULL;
-							cur = (table_file_header*)calloc(1, sizeof(table_file_header));
-
-							if (cur == NULL)
-							{
-								rc = MEMORY_ERROR;
-							}
-							else
-							{
-								memcpy((void*)cur, (void*)&ptr, sizeof(table_file_header));
-								fwrite(cur, sizeof(table_file_header), 1, fhandle);
-								fflush(fhandle);
-								fclose(fhandle);
-
-								free(cur);
-							}
-						}
-					}//end create file
-
-					printf("tablename is %s\n", str);
-					
-				}
-			}
-		}
-	}
-
-	return rc;
-}
-
-int sem_drop_table(token_list *t_list)
-{
-	int rc = 0;
-	token_list *cur;
-	tpd_entry *tab_entry = NULL;
-
-	cur = t_list;
-	if ((cur->tok_class != keyword) &&
-		  (cur->tok_class != identifier) &&
-			(cur->tok_class != type_name))
-	{
-		// Error
-		rc = INVALID_TABLE_NAME;
-		cur->tok_value = INVALID;
-	}
-	else
-	{
-		if (cur->next->tok_value != EOC)
-		{
-			rc = INVALID_STATEMENT;
-			cur->next->tok_value = INVALID;
-		}
-		else
-		{
-			if ((tab_entry = get_tpd_from_list(cur->tok_string)) == NULL)
-			{
-				rc = TABLE_NOT_EXIST;
-				cur->tok_value = INVALID;
-			}
-			else
-			{
-				/* Found a valid tpd, drop it from tpd list */
-				rc = drop_tpd_from_list(cur->tok_string);
-				
-				/* Delete <table_name>.tab file*/
-				char str[MAX_IDENT_LEN + 4 + 3];
-				strcpy(str, cur->tok_string); //get table name
-				strcat(str, ".tab"); 
-				printf("Deleting...%s\n", str);
-				if (remove(str) != 0)
-					perror("Error deleting file\n");
-				else
-					printf("Done deleting %s\n", str);
-			}
-		}
-	}
-
-  return rc;
-}
-
-int sem_list_tables()
-{
-	int rc = 0;
-	int num_tables = g_tpd_list->num_tables;
-	tpd_entry *cur = &(g_tpd_list->tpd_start);
-
-	if (num_tables == 0)
-	{
-		printf("\nThere are currently no tables defined\n");
-	}
-	else
-	{
-		printf("\nTable List\n");
-		printf("*****************\n");
-		while (num_tables-- > 0)
-		{
-			printf("%s\n", cur->table_name);
-			if (num_tables > 0)
-			{
-				cur = (tpd_entry*)((char*)cur + cur->tpd_size);
-			}
-		}
-		printf("****** End ******\n");
-	}
-
-  return rc;
-}
-
-int sem_list_schema(token_list *t_list)
-{
-	int rc = 0;
-	token_list *cur;
-	tpd_entry *tab_entry = NULL;
-	cd_entry  *col_entry = NULL;
-	char tab_name[MAX_IDENT_LEN+1];
-	char filename[MAX_IDENT_LEN+1];
-	bool report = false;
-	FILE *fhandle = NULL;
-	int i = 0;
-
-	cur = t_list;
-
-	if (cur->tok_value != K_FOR)
-	{
-		rc = INVALID_STATEMENT;
-		cur->tok_value = INVALID;
-	}
-	else
-	{
-		cur = cur->next;
-
-		if ((cur->tok_class != keyword) &&
-			  (cur->tok_class != identifier) &&
-				(cur->tok_class != type_name))
-		{
-			// Error
-			rc = INVALID_TABLE_NAME;
-			cur->tok_value = INVALID;
-		}
-		else
-		{
-			memset(filename, '\0', MAX_IDENT_LEN+1);
-			strcpy(tab_name, cur->tok_string);
-			cur = cur->next;
-
-			if (cur->tok_value != EOC)
-			{
-				if (cur->tok_value == K_TO)
-				{
-					cur = cur->next;
-					
-					if ((cur->tok_class != keyword) &&
-						  (cur->tok_class != identifier) &&
-							(cur->tok_class != type_name))
-					{
-						// Error
-						rc = INVALID_REPORT_FILE_NAME;
-						cur->tok_value = INVALID;
-					}
-					else
-					{
-						if (cur->next->tok_value != EOC)
-						{
-							rc = INVALID_STATEMENT;
-							cur->next->tok_value = INVALID;
-						}
-						else
-						{
-							/* We have a valid file name */
-							strcpy(filename, cur->tok_string);
-							report = true;
-						}
-					}
-				}
-				else
-				{ 
-					/* Missing the TO keyword */
-					rc = INVALID_STATEMENT;
-					cur->tok_value = INVALID;
-				}
-			}
-
-			if (!rc)
-			{
-				if ((tab_entry = get_tpd_from_list(tab_name)) == NULL)
-				{
-					rc = TABLE_NOT_EXIST;
-					cur->tok_value = INVALID;
-				}
-				else
-				{
-					if (report)
-					{
-						if((fhandle = fopen(filename, "a+tc")) == NULL)
-						{
-							rc = FILE_OPEN_ERROR;
-						}
-					}
-
-					if (!rc)
-					{
-						/* Find correct tpd, need to parse column and index information */
-
-						/* First, write the tpd_entry information */
-						printf("Table PD size            (tpd_size)    = %d\n", tab_entry->tpd_size);
-						printf("Table Name               (table_name)  = %s\n", tab_entry->table_name);
-						printf("Number of Columns        (num_columns) = %d\n", tab_entry->num_columns);
-						printf("Column Descriptor Offset (cd_offset)   = %d\n", tab_entry->cd_offset);
-						printf("Table PD Flags           (tpd_flags)   = %d\n\n", tab_entry->tpd_flags); 
-
-						if (report)
-						{
-							fprintf(fhandle, "Table PD size            (tpd_size)    = %d\n", tab_entry->tpd_size);
-							fprintf(fhandle, "Table Name               (table_name)  = %s\n", tab_entry->table_name);
-							fprintf(fhandle, "Number of Columns        (num_columns) = %d\n", tab_entry->num_columns);
-							fprintf(fhandle, "Column Descriptor Offset (cd_offset)   = %d\n", tab_entry->cd_offset);
-							fprintf(fhandle, "Table PD Flags           (tpd_flags)   = %d\n\n", tab_entry->tpd_flags); 
-						}
-
-						/* Next, write the cd_entry information */
-						for(i = 0, col_entry = (cd_entry*)((char*)tab_entry + tab_entry->cd_offset);
-								i < tab_entry->num_columns; i++, col_entry++)
-						{
-							printf("Column Name   (col_name) = %s\n", col_entry->col_name);
-							printf("Column Id     (col_id)   = %d\n", col_entry->col_id);
-							printf("Column Type   (col_type) = %d\n", col_entry->col_type);
-							printf("Column Length (col_len)  = %d\n", col_entry->col_len);
-							printf("Not Null flag (not_null) = %d\n\n", col_entry->not_null);
-
-							if (report)
-							{
-								fprintf(fhandle, "Column Name   (col_name) = %s\n", col_entry->col_name);
-								fprintf(fhandle, "Column Id     (col_id)   = %d\n", col_entry->col_id);
-								fprintf(fhandle, "Column Type   (col_type) = %d\n", col_entry->col_type);
-								fprintf(fhandle, "Column Length (col_len)  = %d\n", col_entry->col_len);
-								fprintf(fhandle, "Not Null Flag (not_null) = %d\n\n", col_entry->not_null);
-							}
-						}
-	
-						if (report)
-						{
-							fflush(fhandle);
-							fclose(fhandle);
-						}
-					} // File open error							
-				} // Table not exist
-			} // no semantic errors
-		} // Invalid table name
-	} // Invalid statement
-
-  return rc;
-}
-
-int sem_insert(token_list *t_list){
-	int rc = 0;
-	token_list *cur;
-	tpd_entry tab_entry;
-	tpd_entry *exist_entry = NULL;
-	char row[MAX_IDENT_LEN + 1];
-	row[0] = '\0';
-	int rec_size = 0;
-	table_file_header *ptr = NULL;
-	struct _stat file_stat;
-	token_list *values = NULL, *head = NULL; //for insert token list
-	
-	//parse insert statement
-	cur = t_list;
-	if (cur->tok_class != identifier)
-	{	// Error
-		rc = INVALID_TABLE_NAME;
-		cur->tok_value = INVALID;
-	}
-	else 
-	{	//check that identifier table name exists
-		if ((exist_entry = get_tpd_from_list(cur->tok_string)) == NULL)
-		{
-			rc = TABLE_NOT_EXIST;
-			cur->tok_value = INVALID;
-		}
-		else 
-		{	//table exists, check for values keyword
-			cur = cur->next;
-			if (cur->tok_value != K_VALUES)
-			{	//Error
-				printf("values keyword missing\n");
-				rc = INVALID_INSERT_STATEMENT;
-				cur->tok_value = INVALID;
-			}
-			else 
-			{	//values keyword there, check for R parantheses
-				cur = cur->next;
-				if (cur->tok_value != S_LEFT_PAREN)
-				{	//Error
-					rc = INVALID_INSERT_STATEMENT;
-					cur->tok_value = INVALID;
-				}
-				else
-				{	//L parantheses there, start col and val comparison
-					cur = cur->next;
-
-					cd_entry  *col_entry = NULL;
-					//strcpy(ins_entry[cur_id].col_name, cur->tok_string);
-					int i;
-					for (i = 0, col_entry = (cd_entry*)((char*)exist_entry + exist_entry->cd_offset);
-						i < exist_entry->num_columns; i++, col_entry++)
-					{	//while there are columns in tpd
-						
-						if (cur->tok_value == S_COMMA)
-							cur = cur->next;
-
-						if (cur->tok_value == S_RIGHT_PAREN)
-						{
-							//Error
-							printf("number of columns and insert values don't match\n");
-							rc = INSERT_VAL_COL_LEN_MISMATCH;
-							cur->tok_value = INVALID;
-						}
-						else
-						{	//else, if token list not shorter than number of columns, continue
-							if ((cur->tok_value == INT_LITERAL) && (col_entry->col_type == T_INT))
-							{	//for int literal
-								//printf("got int match!\n");
-								rec_size += col_entry->col_len + 1;
-
-								//temporary token holder
-								token_list *temp = (token_list *)calloc(1, sizeof(token_list));
-								temp->tok_class = cur->tok_class;
-								temp->tok_value = cur->tok_value;
-								strcpy(temp->tok_string, cur->tok_string);
-								temp->next = NULL;
-
-								//set values linked list
-								if (values == NULL)
-								{
-									values = temp;
-									head = temp;
-								}
-								else
-								{
-									head->next = temp;
-									head = temp;
-								}
-								//printf("cur token string    %s\n", head->tok_string);
-								cur = cur->next;
-							}//end int literal
-							else if ((cur->tok_value == STRING_LITERAL) && (col_entry->col_type == T_CHAR))
-							{	//for char or string literal
-								int str_size = strlen(cur->tok_string);
-								//printf("got char match! strlen: %d\n", str_size);
-
-								if (str_size <= col_entry->col_len)
-								{
-									//int diff = col_entry->col_len - str_size;
-
-									//temporary token holder
-									token_list *temp = (token_list *)calloc(1, sizeof(token_list));
-									//temp->tok_class = cur->tok_class; 
-									temp->tok_class = col_entry->col_len; //hack to keep col max len
-									temp->tok_value = cur->tok_value;
-									strcpy(temp->tok_string, cur->tok_string);
-									temp->next = NULL;
-									
-									//set values linked list
-									if (values == NULL)
-									{
-										values = temp;
-										head = temp;
-									}
-									else
-									{
-										head->next = temp;
-										head = temp;
-									}
-									//printf("cur token string    %s\n", head->tok_string);
-
-									//continue to next token
-									cur = cur->next;
-									
-								}
-								else
-								{	//str size too long
-									rc = INSERT_CHAR_LENGTH_MISMATCH;
-									cur->tok_value = INVALID;
-									return rc;
-								}
-							}//end string literal
-							else if (cur->tok_value == K_NULL)
-							{	//Check for not null constraint
-								if (col_entry->not_null)
-								{
-									printf("not null constraint\n");
-									rc = INSERT_NULL_FAILURE;
-									cur->tok_value = INVALID;
-									return rc;
-								}
-								else
-								{	//nullable
-									//printf("in nullable\n");
-									//temporary token holder
-									token_list *temp = (token_list *)calloc(1, sizeof(token_list));
-									//temp->tok_class = cur->tok_class; //1 for keyword
-									//set tok_class to hold column_len
-									temp->tok_class = col_entry->col_len;
-									temp->tok_value = cur->tok_value; //15 for null keyword
-									strcpy(temp->tok_string, cur->tok_string);
-									temp->next = NULL;
-
-									//set values linked list
-									if (values == NULL)
-									{
-										values = temp;
-										head = temp;
-									}
-									else
-									{
-										head->next = temp;
-										head = temp;
-									}
-									//printf("cur token string    %s\n", head->tok_string);
-									
-									//continue to next token
-									cur = cur->next;
-									/*if ((cur->tok_value != S_COMMA) && (cur->tok_value != S_RIGHT_PAREN))
-									{
-										rc = INVALID_INSERT_STATEMENT;
-										cur->tok_value = INVALID;
-										return rc;
-									}
-									else //move to next token
-										cur = cur->next;*/
-								}
-							}//end null
-							else
-							{
-								printf("type mismatch\n");
-								rc = INSERT_VALUE_TYPE_MISMATCH;
-								cur->tok_value = INVALID;
-								return rc;
-							}
-						}//if not EOC
-					}//end for
-
-					if (cur->tok_value == S_RIGHT_PAREN)
-					{
-						//got R parentheses
-						cur = cur->next;
-					}
-
-				}//end else col/val comparison
-			}//end else at L parentheses
-		}//end else where table name found
-	}//end else for parsing
-
-	//do insert (write to .tab)
-	if ((!rc) && (cur->tok_value == EOC))
-	{
-		//printf("insert stmt end reached and it matches tpd!\n\n");
-
-		// Write to <table_name>.tab file
-		char str[MAX_IDENT_LEN + 1];
-		strcpy(str, exist_entry->table_name); //get table name
-		strcat(str, ".tab");
-		FILE *fhandle = NULL;
-		
-		//Open file for read
-		//printf("Opening %s\n", str);
-		if ((fhandle = fopen(str, "rbc")) == NULL)
-		{
-			rc = FILE_OPEN_ERROR;
-		}//end file open error
-		else
-		{
-			_fstat(_fileno(fhandle), &file_stat);
-			//printf("%s size = %d\n", str, file_stat.st_size);
-
-			ptr = (table_file_header*)calloc(1, file_stat.st_size);
-			if (!ptr)
-			{
-				rc = MEMORY_ERROR;
-			}//end memory error
-			else
-			{
-				fread(ptr, file_stat.st_size, 1, fhandle);
-				fflush(fhandle);
-				fclose(fhandle);
-
-				if (ptr->file_size != file_stat.st_size)
-				{
-					printf("%s file_size: %d\n", str, ptr->file_size);
-					printf("in db corruption\n");
-					rc = DBFILE_CORRUPTION;
-					return rc;
-				}
-				else
-				{
-					int old_size = 0;
-					//printf("data read...\n");
-					//printf("tab rec_size:        %d\n", ptr->record_size);
-					//printf("tab num_rec:         %d\n", ptr->num_records);
-					//printf("tab record_offset:   %d\n", ptr->record_offset);
-
-					old_size = ptr->file_size;
-					int rec_offset = ptr->record_offset;
-
-					//open file for write to update file header and add new row entries
-					if ((fhandle = fopen(str, "wbc")) == NULL)
-					{
-						rc = FILE_OPEN_ERROR;
-					}
-					else
-					{
-						
-						//update table file header contents
-						ptr->num_records++;
-						ptr->file_size += ptr->record_size; //add one record size
-						ptr->tpd_ptr = NULL;
-						printf("%s new size = %d\n", str, ptr->file_size);
-						//printf("tab new_file_size:   %d\n", ptr->file_size);
-						//printf("tab new_num_rec:     %d\n\n", ptr->num_records);
-
-						//write updated table file header
-						fwrite(ptr, file_stat.st_size, 1, fhandle);
-
-						//write new row entry
-						//printf("checking llist now...\n");
-						token_list *llist = values;
-						while (llist != NULL)
-						{
-							unsigned char item_len = 0;
-							if (llist->tok_value == STRING_LITERAL)
-							{
-								//printf("item:      '%s'\n", llist->tok_string);
-								item_len = strlen(llist->tok_string);
-								//printf("strlen:   %d",item_len);
-								//printf("item_len:   %d\n", llist->tok_class);
-								//hack to get len of item (tok_class)
-								fwrite(&item_len, sizeof(unsigned char), 1, fhandle);
-								fwrite(&llist->tok_string, llist->tok_class, 1, fhandle);
-							}
-							else if (llist->tok_value == INT_LITERAL)
-							{
-								int item = atoi(llist->tok_string);
-								//printf("item:      %d\n", item);
-								item_len = sizeof(int); //4 bytes for int
-								fwrite(&item_len, sizeof(unsigned char), 1, fhandle);
-								fwrite(&item, item_len, 1, fhandle);
-							}
-							else if (llist->tok_value == K_NULL)
-							{
-								//printf("item:      %s\n", llist->tok_string);
-								item_len = 0;
-								int counter = llist->tok_class; //hack to get null'ed col_len
-								int item = 0; //zero out column
-								fwrite(&item_len, sizeof(unsigned char), 1, fhandle);
-								while (counter > 0)
-								{
-									fwrite(&item, sizeof(unsigned char), 1, fhandle);
-									counter--;
-								}
-							}
-							//printf("item size: %d\n", item_len);
-
-							llist = llist->next;
-						}
-						
-						//get current file size
-						fseek(fhandle, 0, SEEK_END);
-						int cur_size = ftell(fhandle);
-
-						//padding rec with zeroes if rec_size was rounded up to 4 byte boundary
-						//printf("current file size: %d\n", cur_size);
-						//printf("file size should be: %d\n", ptr->file_size);
-						while (cur_size < ptr->file_size)
-						{
-							int pad = 0;
-							fwrite(&pad, sizeof(unsigned char), 1, fhandle);
-							cur_size++;
-						}
-
-						fflush(fhandle);
-						fclose(fhandle);
-					}//file open for write
-				}//file size is correct
-			}//not memory error
-		}//file open for read
-
-		//printf("Done with %s\n", str);
-	}//end insert
-	else
-	{	// there is extra stuff after R parantheses or extra values given
-		printf("here\n");
-		rc = INSERT_VAL_COL_LEN_MISMATCH;
-		cur->tok_value = INVALID;
-	}//end error on insert
-	
-	return rc;
-}
-
-int sem_select(token_list *t_list){
-	int rc = 0;
-	token_list *cur;
-	tpd_entry *tab_entry = NULL;
-	struct _stat file_stat;
-	table_file_header *recs = NULL;
-	token_list *values = NULL, *head = NULL; //to hold retrieved token list
-
-	cur = t_list;
-	if ((cur->tok_value != S_STAR) && (cur->tok_class != identifier) && (cur->tok_class != function_name))
-	{	// Error
-		rc = INVALID_SELECT_STATEMENT;
-		cur->tok_value = INVALID;
-	}
-	else 
-	{	//select stmt has *, identifer or aggregate func
-		if (cur->tok_value == S_STAR)
-		{	//do select * here
-			cur = cur->next;
-			if (cur->tok_value != K_FROM)
-			{	// Error
-				rc = INVALID_SELECT_STATEMENT;
-				cur->tok_value = INVALID;
-			}
-			else
-			{	//'from' keyword found, move to next
-				cur = cur->next;
-				if (cur->tok_class != identifier)
-				{ //table name not found
-					rc = INVALID_SELECT_STATEMENT;
-					cur->tok_value = INVALID;
-				}
-				else
-				{ //identifier found - check that table exists
-					if ((tab_entry = get_tpd_from_list(cur->tok_string)) == NULL)
-					{
-						rc = TABLE_NOT_EXIST;
-						cur->tok_value = INVALID;
-					}
-					else
-					{
-						/* read from <table_name>.tab file*/
-						char str[MAX_IDENT_LEN + 4 + 3];
-						strcpy(str, tab_entry->table_name); //get table name
-						strcat(str, ".tab");
-						//printf("Opening %s file...\n", str);
-						
-						//get column headers
-						char format[MAX_PRINT_LEN], head[MAX_PRINT_LEN];
-						strcpy(format, "+");
-						strcpy(head, "|");
-
-						cd_entry  *col_entry = NULL;
-						int i;
-						for (i = 0, col_entry = (cd_entry*)((char*)tab_entry + tab_entry->cd_offset);
-							i < tab_entry->num_columns; i++, col_entry++)
-						{	//while there are columns in tpd
-								
-							//test if col_len is longer or col_name is longer - use whichever is longer
-							int width = (col_entry->col_len > strlen(col_entry->col_name)) ? 
-								col_entry->col_len : strlen(col_entry->col_name);
-							if (col_entry->col_type == T_INT)
-								width = 11;
-							for (int j = 0; j < width; j++)
-								strcat(format, "-");
-							strcat(format, "+");
-
-							int diff = width - strlen(col_entry->col_name) - 1;
-							//strcat(head, " ");
-							strcat(head, col_entry->col_name);
-							//printf("diff: %d\n", diff);
-							if (diff > 0)
-							{
-								for (int k = 0; k < diff+1; k++)
-									strcat(head, " ");
-							}
-							strcat(head, "|");
-							//printf("Column Name   (col_name) = %s\n", col_entry->col_name);
-							//printf("Column Length (col_len)  = %d\n", col_entry->col_len);
-						}
-
-						printf("%s\n", format);
-						printf("%s\n", head);
-						printf("%s\n", format);
-
-						FILE *fhandle = NULL;
-						if ((fhandle = fopen(str, "rbc")) == NULL)
-						{
-							rc = FILE_OPEN_ERROR;
-						}//end file open error
-						else
-						{
-							_fstat(_fileno(fhandle), &file_stat);
-							//printf("%s size = %d\n", str, file_stat.st_size);
-							recs = (table_file_header*)calloc(1, file_stat.st_size);
-
-							if (!recs)
-							{
-								rc = MEMORY_ERROR;
-							}//end memory error
-							else
-							{
-								fread(recs, file_stat.st_size, 1, fhandle);
-								fflush(fhandle);
-								
-								if (recs->file_size != file_stat.st_size)
-								{
-									printf("ptr file_size: %d\n", recs->file_size);
-									printf("in db corruption\n");
-									rc = DBFILE_CORRUPTION;
-									return rc;
-								}
-								else
-								{
-									int rows_tb_size = recs->file_size - recs->record_offset;
-									int record_size = recs->record_size;
-									int offset = recs->record_offset;
-									int num_records = recs->num_records;
-									//printf("bytes to copy for data:  %d\n", rows_tb_size);
-									//printf("record size is:          %d\n", record_size);
-									//printf("record offset at:        %d\n", offset);
-									//printf("num of records in here:  %d\n", num_records);
-									
-									fseek(fhandle, offset, SEEK_SET);
-									unsigned char *buffer;
-									buffer = (unsigned char*)calloc(1, record_size * 100);
-									if (!buffer)
-										rc = MEMORY_ERROR;
-									else
-									{
-										fread(buffer, rows_tb_size, 1, fhandle);
-										int i = 0, rec_cnt = 0, rows = 1;
-										while (i < rows_tb_size)
-										{
-											//printf("at index: %d\n", i);
-											printf("|");
-											cd_entry  *col = NULL;
-											int k, row_col = 0;
-											for (k = 0, col = (cd_entry*)((char*)tab_entry + tab_entry->cd_offset);
-												k < tab_entry->num_columns; k++, col++)
-											{	//while there are columns in tpd
-												
-												unsigned char col_len = (unsigned char)buffer[i];
-												//printf("read col len:  %u\n", col_len);
-												//printf("true col len:  %d\n", col->col_len);
-												
-												if ((int)col_len > 0)
-												{
-													if (col->col_type == T_INT)
-													{	//for integer data
-														int b = i + 1;
-														//printf("   col is int\n");
-														char *int_b;
-														int elem;
-														int_b = (char*)calloc(1, sizeof(int));
-														for (int a = 0; a < sizeof(int); a++)
-														{
-															int_b[a] = buffer[b + a];
-														}
-														memcpy(&elem, int_b, sizeof(int));
-														printf("%11d|", elem);
-
-													}
-													else if (col->col_type == T_CHAR)
-													{	//for char data
-														//printf("   col is char\n");
-														int b = i + 1;
-														char *str_b;
-														int len = col->col_len + 1;
-														str_b = (char*)calloc(1, len);
-														for (int a = 0; a < len; a++)
-														{
-															str_b[a] = buffer[b + a];
-														}
-														str_b[len - 1] = '\0';
-														printf("%s", str_b);
-														int str_len = strlen(str_b);
-														int width = (col->col_len > strlen(col->col_name)) ?
-															col->col_len : strlen(col->col_name);
-														while (str_len < width)
-														{
-															printf(" ");
-															str_len++;
-														}
-														printf("|");
-													}
-												}
-												else
-												{	//for null
-													if ((int)col_len == 0)
-													{
-														//printf("  col is null\n");
-														int b = i + 1;
-														char *null_b;
-														int len = 0;
-														if (col->col_type == T_INT)
-															len = 11;
-														else if (col->col_type == T_CHAR)
-														{
-															len = (col->col_len > strlen(col->col_name)) ?
-																col->col_len : strlen(col->col_name);
-
-															//printf("len: %d  ", len);
-														}
-
-														null_b = (char*)calloc(1, len);
-														strcat(null_b, "-");
-														int str_len = strlen(null_b);
-														int width = (str_len > len) ? str_len : len;
-
-														//print to L or R depending on col type
-														if (col->col_type == T_INT)
-														{
-															while (str_len < width)
-															{
-																printf(" ");
-																str_len++;
-															}
-															printf("%s|", null_b);
-
-														}
-														else if (col->col_type == T_CHAR)
-														{
-															//printf("%d    %d",str_len,width);
-															printf("%s", null_b);
-															while (str_len < width)
-															{
-																printf(" ");
-																str_len++;
-															}
-															printf("|");
-														}
-
-													}//if column is null
-													else
-														rc = DBFILE_CORRUPTION; //if byte is anything else
-												}
-												i += col->col_len+1; //move to next item/column
-											}
-											printf("\n");
-											rec_cnt += record_size; //skip to next record
-											i = rec_cnt;
-										}//end while
-										if (num_records > 0)
-											printf("%s\n", format);//print last line
-										printf("%d rows selected.\n", num_records);
-									}
-
-								}//file is not corrupt
-
-								fclose(fhandle);
-							}//not memory error
-						}//not file open error
-					}//not table not exist
-				}
-			}
-		}//select * stmt
-		else if (cur->tok_class == function_name)
-		{
-			printf("found aggregate func: %s\n", cur->tok_string);
-			printf("aggregation function not yet implemented");
-		}//aggregate function in select
-		else if (cur->tok_class == identifier)
-		{
-			printf("cur: %s\n", cur->tok_string);
-			printf("other select not yet implemented");
-		}//found identifier in select
-		else
-		{	//if not table name or not aggregate function name
-			rc = INVALID_SELECT_STATEMENT;
-			cur->tok_value = INVALID;
-		}
-	}
+				; /* no action */
+		}//end switch
+	}//end !invalid stmt
 	
 	return rc;
 }
@@ -1778,3 +632,1194 @@ tpd_entry* get_tpd_from_list(char *tabname)
 
 	return tpd;
 }
+
+int sem_create_table(token_list *t_list)
+{
+	int rc = 0;
+	token_list *cur;
+	tpd_entry tab_entry;
+	tpd_entry *new_entry = NULL;
+	bool column_done = false;
+	int cur_id = 0;
+	cd_entry	col_entry[MAX_NUM_COL];
+	int rec_size = 0;
+
+	memset(&tab_entry, '\0', sizeof(tpd_entry));
+	cur = t_list;
+	if ((cur->tok_class != keyword) && (cur->tok_class != identifier) &&
+			(cur->tok_class != type_name))
+	{	// Error
+		printf("invalid table name\n");
+		rc = INVALID_TABLE_NAME;
+		cur->tok_value = INVALID;
+	}
+	else
+	{
+		if ((new_entry = get_tpd_from_list(cur->tok_string)) != NULL)
+		{
+			printf("duplicate table name\n");
+			rc = DUPLICATE_TABLE_NAME;
+			cur->tok_value = INVALID;
+		}
+		else
+		{
+			strcpy(tab_entry.table_name, cur->tok_string);
+			cur = cur->next;
+			if (cur->tok_value != S_LEFT_PAREN)
+			{	//Error
+				rc = INVALID_TABLE_DEFINITION;
+				cur->tok_value = INVALID;
+			}
+			else
+			{
+				memset(&col_entry, '\0', (MAX_NUM_COL * sizeof(cd_entry)));
+
+				/* Now build a set of column entries */
+				cur = cur->next;
+				do
+				{
+					if ((cur->tok_class != keyword) && (cur->tok_class != identifier) &&
+						(cur->tok_class != type_name))
+					{	// Error
+						printf("invalid column name\n");
+						rc = INVALID_COLUMN_NAME;
+						cur->tok_value = INVALID;
+					}
+					else
+					{
+						int i;
+						for(i = 0; i < cur_id; i++)
+						{	/* make column name case sensitive */
+							if (strcmp(col_entry[i].col_name, cur->tok_string)==0)
+							{
+								printf("duplicate column name\n");
+								rc = DUPLICATE_COLUMN_NAME;
+								cur->tok_value = INVALID;
+								break;
+							}
+						}
+
+						if (!rc)
+						{
+							strcpy(col_entry[cur_id].col_name, cur->tok_string);
+							col_entry[cur_id].col_id = cur_id;
+							col_entry[cur_id].not_null = false;    /* set default */
+
+							cur = cur->next;
+							if (cur->tok_class != type_name)
+							{	// Error
+								rc = INVALID_TYPE_NAME;
+								cur->tok_value = INVALID;
+							}
+							else
+							{	/* Set the column type here, int or char */
+								col_entry[cur_id].col_type = cur->tok_value;
+								
+								cur = cur->next;
+		
+								if (col_entry[cur_id].col_type == T_INT)
+								{
+									if ((cur->tok_value != S_COMMA) && (cur->tok_value != K_NOT) &&
+										  (cur->tok_value != S_RIGHT_PAREN))
+									{
+										rc = INVALID_COLUMN_DEFINITION;
+										cur->tok_value = INVALID;
+									}
+									else
+									{	//for int
+										col_entry[cur_id].col_len = sizeof(int);
+										rec_size += col_entry[cur_id].col_len + 1;
+										
+										if ((cur->tok_value == K_NOT) && (cur->next->tok_value != K_NULL))
+										{
+											rc = INVALID_COLUMN_DEFINITION;
+											cur->tok_value = INVALID;
+										}	
+										else if ((cur->tok_value == K_NOT) &&
+											    (cur->next->tok_value == K_NULL))
+										{					
+											col_entry[cur_id].not_null = true;
+											cur = cur->next->next;
+										}
+	
+										if (!rc)
+										{
+											/* I must have either a comma or right paren */
+											if ((cur->tok_value != S_RIGHT_PAREN) && (cur->tok_value != S_COMMA))
+											{
+												rc = INVALID_COLUMN_DEFINITION;
+												cur->tok_value = INVALID;
+											}
+											else
+											{
+												if (cur->tok_value == S_RIGHT_PAREN)
+												{
+ 													column_done = true;
+												}
+												cur = cur->next;
+											}
+										}
+									}
+								}// end of S_INT processing
+								else
+								{	// It must be char()
+									if (cur->tok_value != S_LEFT_PAREN)
+									{
+										rc = INVALID_COLUMN_DEFINITION;
+										cur->tok_value = INVALID;
+									}
+									else
+									{	/* Enter char(n) processing */
+										cur = cur->next;
+		
+										if (cur->tok_value != INT_LITERAL)
+										{
+											rc = INVALID_COLUMN_LENGTH;
+											cur->tok_value = INVALID;
+										}
+										else
+										{	/* Got a valid integer - convert */
+											col_entry[cur_id].col_len = atoi(cur->tok_string);
+											rec_size += col_entry[cur_id].col_len + 1;
+											cur = cur->next;
+											
+											if (cur->tok_value != S_RIGHT_PAREN)
+											{
+												rc = INVALID_COLUMN_DEFINITION;
+												cur->tok_value = INVALID;
+											}
+											else
+											{
+												cur = cur->next;
+						
+												if ((cur->tok_value != S_COMMA) && (cur->tok_value != K_NOT) &&
+														(cur->tok_value != S_RIGHT_PAREN))
+												{
+													rc = INVALID_COLUMN_DEFINITION;
+													cur->tok_value = INVALID;
+												}
+												else
+												{
+													if ((cur->tok_value == K_NOT) && (cur->next->tok_value != K_NULL))
+													{
+														rc = INVALID_COLUMN_DEFINITION;
+														cur->tok_value = INVALID;
+													}
+													else if ((cur->tok_value == K_NOT) && (cur->next->tok_value == K_NULL))
+													{					
+														col_entry[cur_id].not_null = true;
+														cur = cur->next->next;
+													}
+		
+													if (!rc)
+													{
+														/* I must have either a comma or right paren */
+														if ((cur->tok_value != S_RIGHT_PAREN) &&															  (cur->tok_value != S_COMMA))
+														{
+															rc = INVALID_COLUMN_DEFINITION;
+															cur->tok_value = INVALID;
+														}
+														else
+														{
+															if (cur->tok_value == S_RIGHT_PAREN)
+															{
+																column_done = true;
+															}
+															cur = cur->next;
+														}
+													}
+												}
+											}
+										}	/* end char(n) processing */
+									}
+								} /* end char processing */
+							}
+						}  // duplicate column name
+					} // invalid column name
+
+					/* If rc=0, then get ready for the next column */
+					if (!rc)
+					{
+						cur_id++;
+					}
+
+				} while ((rc == 0) && (!column_done));
+	
+				if ((column_done) && (cur->tok_value != EOC))
+				{
+					rc = INVALID_TABLE_DEFINITION;
+					cur->tok_value = INVALID;
+				}
+
+				if (!rc)
+				{
+					/* Now finished building tpd and add it to the tpd list */
+					tab_entry.num_columns = cur_id;
+					tab_entry.tpd_size = sizeof(tpd_entry) + sizeof(cd_entry) *	tab_entry.num_columns;
+					tab_entry.cd_offset = sizeof(tpd_entry);
+					new_entry = (tpd_entry*)calloc(1, tab_entry.tpd_size);
+
+					if (new_entry == NULL)
+					{
+						rc = MEMORY_ERROR;
+					}
+					else
+					{	
+						memcpy((void*)new_entry,
+							     (void*)&tab_entry,
+									 sizeof(tpd_entry));
+		
+						memcpy((void*)((char*)new_entry + sizeof(tpd_entry)),
+									 (void*)col_entry,
+									 sizeof(cd_entry) * tab_entry.num_columns);
+						rc = add_tpd_to_list(new_entry);
+
+						free(new_entry);
+					}
+
+					// Round rec_size to higher 4-byte boundary
+					int rem = rec_size % 4;
+					if (rem != 0)
+						rec_size = (int)ceil(rec_size / 4.0) * 4;
+
+					//Create <table_name>.tab file
+					char str[MAX_IDENT_LEN + 1];
+					strcpy(str, tab_entry.table_name); //get table name
+					strcat(str, ".tab");
+
+					FILE *fhandle = NULL;
+					
+					//Create and open file for read
+					if ((fhandle = fopen(str, "wbc")) == NULL)
+					{
+						rc = FILE_OPEN_ERROR;
+					}
+					else
+					{
+						table_file_header ptr;
+						memset(&ptr, '\0', sizeof(table_file_header));
+						ptr.record_size = rec_size;
+						ptr.num_records = 0; //no records yet
+						ptr.file_size = sizeof(table_file_header);
+						ptr.record_offset = sizeof(table_file_header);
+						ptr.file_header_flag = 0; //TODO: what is this for?
+						ptr.tpd_ptr = NULL;
+
+						table_file_header *cur = NULL;
+						cur = (table_file_header*)calloc(1, sizeof(table_file_header));
+
+						if (cur == NULL)
+						{
+							rc = MEMORY_ERROR;
+						}
+						else
+						{
+							memcpy((void*)cur, (void*)&ptr, sizeof(table_file_header));
+							fwrite(cur, sizeof(table_file_header), 1, fhandle);
+							fflush(fhandle);
+							fclose(fhandle);
+
+							free(cur);
+						}
+					}
+
+					printf("tablename is %s\n", str);
+				}//end if !rc
+			}
+		}
+	}
+
+	return rc;
+}
+
+int sem_drop_table(token_list *t_list)
+{
+	int rc = 0;
+	token_list *cur;
+	tpd_entry *tab_entry = NULL;
+
+	cur = t_list;
+	if ((cur->tok_class != keyword) &&
+		  (cur->tok_class != identifier) &&
+			(cur->tok_class != type_name))
+	{
+		// Error
+		rc = INVALID_TABLE_NAME;
+		cur->tok_value = INVALID;
+	}
+	else
+	{
+		if (cur->next->tok_value != EOC)
+		{
+			rc = INVALID_STATEMENT;
+			cur->next->tok_value = INVALID;
+		}
+		else
+		{
+			if ((tab_entry = get_tpd_from_list(cur->tok_string)) == NULL)
+			{
+				rc = TABLE_NOT_EXIST;
+				cur->tok_value = INVALID;
+			}
+			else
+			{
+				/* Found a valid tpd, drop it from tpd list */
+				rc = drop_tpd_from_list(cur->tok_string);
+				
+				/* Delete <table_name>.tab file*/
+				char str[MAX_IDENT_LEN + 4 + 3];
+				strcpy(str, cur->tok_string); //get table name
+				strcat(str, ".tab"); 
+				printf("Deleting...%s\n", str);
+				if (remove(str) != 0)
+					perror("Error deleting file\n");
+				else
+					printf("Done deleting %s\n", str);
+			}
+		}
+	}
+
+  return rc;
+}
+
+int sem_list_tables()
+{
+	int rc = 0;
+	int num_tables = g_tpd_list->num_tables;
+	tpd_entry *cur = &(g_tpd_list->tpd_start);
+
+	if (num_tables == 0)
+	{
+		printf("\nThere are currently no tables defined\n");
+	}
+	else
+	{
+		printf("\nTable List\n");
+		printf("*****************\n");
+		while (num_tables-- > 0)
+		{
+			printf("%s\n", cur->table_name);
+			if (num_tables > 0)
+			{
+				cur = (tpd_entry*)((char*)cur + cur->tpd_size);
+			}
+		}
+		printf("****** End ******\n");
+	}
+
+  return rc;
+}
+
+int sem_list_schema(token_list *t_list)
+{
+	int rc = 0;
+	token_list *cur;
+	tpd_entry *tab_entry = NULL;
+	cd_entry  *col_entry = NULL;
+	char tab_name[MAX_IDENT_LEN+1];
+	char filename[MAX_IDENT_LEN+1];
+	bool report = false;
+	FILE *fhandle = NULL;
+	int i = 0;
+
+	cur = t_list;
+
+	if (cur->tok_value != K_FOR)
+	{
+		rc = INVALID_STATEMENT;
+		cur->tok_value = INVALID;
+	}
+	else
+	{
+		cur = cur->next;
+
+		if ((cur->tok_class != keyword) &&
+			  (cur->tok_class != identifier) &&
+				(cur->tok_class != type_name))
+		{
+			// Error
+			rc = INVALID_TABLE_NAME;
+			cur->tok_value = INVALID;
+		}
+		else
+		{
+			memset(filename, '\0', MAX_IDENT_LEN+1);
+			strcpy(tab_name, cur->tok_string);
+			cur = cur->next;
+
+			if (cur->tok_value != EOC)
+			{
+				if (cur->tok_value == K_TO)
+				{
+					cur = cur->next;
+					
+					if ((cur->tok_class != keyword) &&
+						  (cur->tok_class != identifier) &&
+							(cur->tok_class != type_name))
+					{
+						// Error
+						rc = INVALID_REPORT_FILE_NAME;
+						cur->tok_value = INVALID;
+					}
+					else
+					{
+						if (cur->next->tok_value != EOC)
+						{
+							rc = INVALID_STATEMENT;
+							cur->next->tok_value = INVALID;
+						}
+						else
+						{
+							/* We have a valid file name */
+							strcpy(filename, cur->tok_string);
+							report = true;
+						}
+					}
+				}
+				else
+				{ 
+					/* Missing the TO keyword */
+					rc = INVALID_STATEMENT;
+					cur->tok_value = INVALID;
+				}
+			}
+
+			if (!rc)
+			{
+				if ((tab_entry = get_tpd_from_list(tab_name)) == NULL)
+				{
+					rc = TABLE_NOT_EXIST;
+					cur->tok_value = INVALID;
+				}
+				else
+				{
+					if (report)
+					{
+						if((fhandle = fopen(filename, "a+tc")) == NULL)
+						{
+							rc = FILE_OPEN_ERROR;
+						}
+					}
+
+					if (!rc)
+					{
+						/* Find correct tpd, need to parse column and index information */
+
+						/* First, write the tpd_entry information */
+						printf("Table PD size            (tpd_size)    = %d\n", tab_entry->tpd_size);
+						printf("Table Name               (table_name)  = %s\n", tab_entry->table_name);
+						printf("Number of Columns        (num_columns) = %d\n", tab_entry->num_columns);
+						printf("Column Descriptor Offset (cd_offset)   = %d\n", tab_entry->cd_offset);
+						printf("Table PD Flags           (tpd_flags)   = %d\n\n", tab_entry->tpd_flags); 
+
+						if (report)
+						{
+							fprintf(fhandle, "Table PD size            (tpd_size)    = %d\n", tab_entry->tpd_size);
+							fprintf(fhandle, "Table Name               (table_name)  = %s\n", tab_entry->table_name);
+							fprintf(fhandle, "Number of Columns        (num_columns) = %d\n", tab_entry->num_columns);
+							fprintf(fhandle, "Column Descriptor Offset (cd_offset)   = %d\n", tab_entry->cd_offset);
+							fprintf(fhandle, "Table PD Flags           (tpd_flags)   = %d\n\n", tab_entry->tpd_flags); 
+						}
+
+						/* Next, write the cd_entry information */
+						for(i = 0, col_entry = (cd_entry*)((char*)tab_entry + tab_entry->cd_offset);
+								i < tab_entry->num_columns; i++, col_entry++)
+						{
+							printf("Column Name   (col_name) = %s\n", col_entry->col_name);
+							printf("Column Id     (col_id)   = %d\n", col_entry->col_id);
+							printf("Column Type   (col_type) = %d\n", col_entry->col_type);
+							printf("Column Length (col_len)  = %d\n", col_entry->col_len);
+							printf("Not Null flag (not_null) = %d\n\n", col_entry->not_null);
+
+							if (report)
+							{
+								fprintf(fhandle, "Column Name   (col_name) = %s\n", col_entry->col_name);
+								fprintf(fhandle, "Column Id     (col_id)   = %d\n", col_entry->col_id);
+								fprintf(fhandle, "Column Type   (col_type) = %d\n", col_entry->col_type);
+								fprintf(fhandle, "Column Length (col_len)  = %d\n", col_entry->col_len);
+								fprintf(fhandle, "Not Null Flag (not_null) = %d\n\n", col_entry->not_null);
+							}
+						}
+	
+						if (report)
+						{
+							fflush(fhandle);
+							fclose(fhandle);
+						}
+					} // File open error							
+				} // Table not exist
+			} // no semantic errors
+		} // Invalid table name
+	} // Invalid statement
+
+  return rc;
+}
+
+int sem_insert(token_list *t_list)
+{
+	int rc = 0;
+	token_list *cur;
+	tpd_entry tab_entry;
+	tpd_entry *exist_entry = NULL;
+	table_file_header *ptr = NULL;
+	struct _stat file_stat;
+	token_list *values = NULL, *head = NULL; //for insert token list
+	
+	//parse insert statement
+	cur = t_list;
+	if (cur->tok_class != identifier)
+	{	// Error
+		rc = INVALID_TABLE_NAME;
+		cur->tok_value = INVALID;
+	}
+	else 
+	{	//check that identifier table name exists
+		if ((exist_entry = get_tpd_from_list(cur->tok_string)) == NULL)
+		{
+			rc = TABLE_NOT_EXIST;
+			cur->tok_value = INVALID;
+		}
+		else 
+		{	//table exists, check for values keyword
+			cur = cur->next;
+			if (cur->tok_value != K_VALUES)
+			{	//Error
+				printf("values keyword missing\n");
+				rc = INVALID_INSERT_STATEMENT;
+				cur->tok_value = INVALID;
+			}
+			else 
+			{	//values keyword there, check for R parantheses
+				cur = cur->next;
+				if (cur->tok_value != S_LEFT_PAREN)
+				{	//Error
+					rc = INVALID_INSERT_STATEMENT;
+					cur->tok_value = INVALID;
+				}
+				else
+				{	//L parantheses there, start col and val comparison
+					cur = cur->next;
+
+					cd_entry  *col_entry = NULL;
+					int i;
+					for (i = 0, col_entry = (cd_entry*)((char*)exist_entry + exist_entry->cd_offset);
+						i < exist_entry->num_columns; i++, col_entry++)
+					{	//while there are columns in tpd
+						
+						if (cur->tok_value == S_COMMA)
+							cur = cur->next;
+
+						if (cur->tok_value == S_RIGHT_PAREN)
+						{	//Error
+							printf("number of columns and insert values don't match\n");
+							rc = INSERT_VAL_COL_LEN_MISMATCH;
+							cur->tok_value = INVALID;
+						}
+						else
+						{	//else, if token list is not shorter than number of columns, continue parsing
+							if ((cur->tok_value == INT_LITERAL) && (col_entry->col_type == T_INT))
+							{	//for int literal
+
+								//check that int literal is not greater than max int
+								if (strlen(cur->tok_string) > 10)
+								{
+									printf("integer value error\n");
+									rc = INSERT_INT_SIZE_FAILURE;
+									cur->tok_value = INVALID;
+									return rc;
+								}
+								else if ((strlen(cur->tok_string) == 10) && (strcmp(cur->tok_string, "2147483647") > 0))
+								{
+									printf("integer value error\n");
+									rc = INSERT_INT_SIZE_FAILURE;
+									cur->tok_value = INVALID;
+									return rc;
+								}
+								else
+								{
+									//temporary token holder
+									token_list *temp = (token_list *)calloc(1, sizeof(token_list));
+									temp->tok_class = cur->tok_class;
+									temp->tok_value = cur->tok_value;
+									strcpy(temp->tok_string, cur->tok_string);
+									temp->next = NULL;
+
+									//set values linked list
+									if (values == NULL)
+									{
+										values = temp;
+										head = temp;
+									}
+									else
+									{
+										head->next = temp;
+										head = temp;
+									}
+									cur = cur->next;
+								}
+							}//end int literal
+							else if ((cur->tok_value == STRING_LITERAL) && (col_entry->col_type == T_CHAR))
+							{	//for char or string literal
+								int str_size = strlen(cur->tok_string);
+
+								if (str_size <= col_entry->col_len)
+								{
+									//temporary token holder
+									token_list *temp = (token_list *)calloc(1, sizeof(token_list));
+									//temp->tok_class = cur->tok_class; 
+									temp->tok_class = col_entry->col_len; //hack to keep col max len
+									temp->tok_value = cur->tok_value;
+									strcpy(temp->tok_string, cur->tok_string);
+									temp->next = NULL;
+									
+									//set values linked list
+									if (values == NULL)
+									{
+										values = temp;
+										head = temp;
+									}
+									else
+									{
+										head->next = temp;
+										head = temp;
+									}
+
+									//continue to next token
+									cur = cur->next;
+									
+								}
+								else
+								{	//str size too long
+									printf("char length error\n");
+									rc = INSERT_CHAR_LENGTH_MISMATCH;
+									cur->tok_value = INVALID;
+									return rc;
+								}
+							}//end string literal
+							else if (cur->tok_value == K_NULL)
+							{	//Check for not null constraint
+								
+								if (col_entry->not_null)
+								{
+									printf("not null constraint\n");
+									rc = INSERT_NULL_FAILURE;
+									cur->tok_value = INVALID;
+									return rc;
+								}
+								else
+								{	//nullable
+
+									//temporary token holder
+									token_list *temp = (token_list *)calloc(1, sizeof(token_list));
+									//temp->tok_class = cur->tok_class; //1 for keyword
+									//hack: set tok_class to hold column_len
+									temp->tok_class = col_entry->col_len;
+									temp->tok_value = cur->tok_value; //15 for null keyword
+									strcpy(temp->tok_string, cur->tok_string);
+									temp->next = NULL;
+
+									//set values linked list
+									if (values == NULL)
+									{
+										values = temp;
+										head = temp;
+									}
+									else
+									{
+										head->next = temp;
+										head = temp;
+									}
+									
+									//continue to next token
+									cur = cur->next;
+								}
+							}//end null
+							else
+							{
+								printf("type mismatch\n");
+								rc = INSERT_VALUE_TYPE_MISMATCH;
+								cur->tok_value = INVALID;
+								return rc;
+							}
+						}//if not EOC
+					}//end for
+
+					if (cur->tok_value == S_RIGHT_PAREN)
+					{
+						//got R parentheses
+						cur = cur->next;
+					}
+
+				}//end else col/val comparison
+			}//end else at L parentheses
+		}//end else where table name found
+	}//end else for parsing
+
+	//do insert (write to .tab)
+	if ((!rc) && (cur->tok_value == EOC))
+	{	//col/values match tpd columns definitions
+		
+		// Write to <table_name>.tab file
+		char str[MAX_IDENT_LEN + 1];
+		strcpy(str, exist_entry->table_name); //get table name
+		strcat(str, ".tab");
+		FILE *fhandle = NULL;
+		
+		//Open file for read
+		if ((fhandle = fopen(str, "rbc")) == NULL)
+		{
+			rc = FILE_OPEN_ERROR;
+		}//end file open error
+		else
+		{
+			_fstat(_fileno(fhandle), &file_stat);
+			ptr = (table_file_header*)calloc(1, file_stat.st_size);
+			
+			if (!ptr)
+			{
+				rc = MEMORY_ERROR;
+			}//end memory error
+			else
+			{
+				fread(ptr, file_stat.st_size, 1, fhandle);
+				fflush(fhandle);
+				fclose(fhandle);
+
+				if (ptr->file_size != file_stat.st_size)
+				{
+					printf("%s file_size: %d\n", str, ptr->file_size);
+					printf("in db file corruption\n");
+					rc = DBFILE_CORRUPTION;
+					return rc;
+				}
+				else
+				{
+					int old_size = 0;
+					old_size = ptr->file_size;
+					int rec_offset = ptr->record_offset;
+
+					//open file for write to update file header and add new row entries
+					if ((fhandle = fopen(str, "wbc")) == NULL)
+					{
+						rc = FILE_OPEN_ERROR;
+					}
+					else
+					{	//update table file header contents
+						ptr->num_records++;
+						ptr->file_size += ptr->record_size; //add one record size
+						ptr->tpd_ptr = NULL;
+						printf("%s new size = %d\n", str, ptr->file_size);
+
+						//write updated table file header
+						fwrite(ptr, file_stat.st_size, 1, fhandle);
+
+						//write new row entry
+						token_list *llist = values;
+						while (llist != NULL)
+						{
+							unsigned char item_len = 0;
+							if (llist->tok_value == STRING_LITERAL)
+							{
+								item_len = strlen(llist->tok_string);
+								//hack to get len of item (tok_class)
+								fwrite(&item_len, sizeof(unsigned char), 1, fhandle);
+								fwrite(&llist->tok_string, llist->tok_class, 1, fhandle);
+							}
+							else if (llist->tok_value == INT_LITERAL)
+							{
+								int item = atoi(llist->tok_string);
+								item_len = sizeof(int); //4 bytes for int
+								fwrite(&item_len, sizeof(unsigned char), 1, fhandle);
+								fwrite(&item, item_len, 1, fhandle);
+							}
+							else if (llist->tok_value == K_NULL)
+							{
+								item_len = 0;
+								int counter = llist->tok_class; //hack to get null'ed col_len
+								int item = 0; //zero out column
+								fwrite(&item_len, sizeof(unsigned char), 1, fhandle);
+								while (counter > 0)
+								{
+									fwrite(&item, sizeof(unsigned char), 1, fhandle);
+									counter--;
+								}
+							}
+
+							llist = llist->next;
+						}
+						
+						//get current file size
+						fseek(fhandle, 0, SEEK_END);
+						int cur_size = ftell(fhandle);
+
+						//padding rec with zeroes if rec_size was rounded up to 4 byte boundary
+						while (cur_size < ptr->file_size)
+						{
+							int pad = 0;
+							fwrite(&pad, sizeof(unsigned char), 1, fhandle);
+							cur_size++;
+						}
+
+						fflush(fhandle);
+						fclose(fhandle);
+					}//end file open for write
+				}//end check that file size is correct
+			}//end not memory error
+		}//end file open for read
+	}//end insert
+	else
+	{	// there is extra stuff after R parantheses or extra values given
+		rc = INVALID_INSERT_STATEMENT;
+		cur->tok_value = INVALID;
+	}//end error on insert
+	
+	return rc;
+}
+
+int sem_select(token_list *t_list)
+{
+	int rc = 0;
+	token_list *cur;
+	tpd_entry *tab_entry = NULL;
+	struct _stat file_stat;
+	table_file_header *recs = NULL;
+	token_list *values = NULL, *head = NULL; //to hold retrieved token list
+
+	cur = t_list;
+	if ((cur->tok_value != S_STAR) && (cur->tok_class != identifier) && (cur->tok_class != function_name))
+	{	// Error
+		rc = INVALID_SELECT_STATEMENT;
+		cur->tok_value = INVALID;
+	}
+	else 
+	{	//select stmt has *, identifer or aggregate func
+		if (cur->tok_value == S_STAR)
+		{	//do select * here
+			cur = cur->next;
+			if (cur->tok_value != K_FROM)
+			{	// Error
+				rc = INVALID_SELECT_STATEMENT;
+				cur->tok_value = INVALID;
+			}
+			else
+			{	//'from' keyword found, move to next token
+				cur = cur->next;
+				if (cur->tok_class != identifier)
+				{ //table name not found
+					rc = INVALID_SELECT_STATEMENT;
+					cur->tok_value = INVALID;
+				}
+				else
+				{ //identifier found - check that table exists
+					if ((tab_entry = get_tpd_from_list(cur->tok_string)) == NULL)
+					{
+						rc = TABLE_NOT_EXIST;
+						cur->tok_value = INVALID;
+					}
+					else
+					{
+						/* read from <table_name>.tab file*/
+						char str[MAX_IDENT_LEN + 4 + 3];
+						strcpy(str, tab_entry->table_name); //get table name
+						strcat(str, ".tab");
+						
+						//get column headers
+						char format[MAX_PRINT_LEN], head[MAX_PRINT_LEN];
+						strcpy(format, "+");
+						strcpy(head, "|");
+
+						cd_entry  *col_entry = NULL;
+						int i;
+						for (i = 0, col_entry = (cd_entry*)((char*)tab_entry + tab_entry->cd_offset);
+							i < tab_entry->num_columns; i++, col_entry++)
+						{	//while there are columns in tpd
+								
+							//test if col_len is longer or col_name is longer - use whichever is longer
+							int width = (col_entry->col_len > strlen(col_entry->col_name)) ? 
+												col_entry->col_len : strlen(col_entry->col_name);
+							if (col_entry->col_type == T_INT)
+								width = 11; //int columns should have width 11
+							for (int j = 0; j < width; j++)
+								strcat(format, "-");
+							strcat(format, "+");
+
+							int diff = width - strlen(col_entry->col_name);
+							strcat(head, col_entry->col_name);
+							if (diff > 0)
+							{
+								for (int k = 0; k < diff; k++)
+									strcat(head, " ");
+							}
+							strcat(head, "|");
+						}
+
+						printf("%s\n", format);
+						printf("%s\n", head);
+						printf("%s\n", format);
+
+						FILE *fhandle = NULL;
+						if ((fhandle = fopen(str, "rbc")) == NULL)
+						{
+							rc = FILE_OPEN_ERROR;
+						}//end file open error
+						else
+						{
+							_fstat(_fileno(fhandle), &file_stat);
+							recs = (table_file_header*)calloc(1, file_stat.st_size);
+
+							if (!recs)
+							{
+								rc = MEMORY_ERROR;
+							}//end memory error
+							else
+							{
+								fread(recs, file_stat.st_size, 1, fhandle);
+								fflush(fhandle);
+								
+								if (recs->file_size != file_stat.st_size)
+								{
+									printf("ptr file_size: %d\n", recs->file_size);
+									printf("in db corruption\n");
+									rc = DBFILE_CORRUPTION;
+									return rc;
+								}
+								else
+								{
+									int rows_tb_size = recs->file_size - recs->record_offset;
+									int record_size = recs->record_size;
+									int offset = recs->record_offset;
+									int num_records = recs->num_records;
+
+									fseek(fhandle, offset, SEEK_SET);
+									unsigned char *buffer;
+									buffer = (unsigned char*)calloc(1, record_size * 100);
+									if (!buffer)
+										rc = MEMORY_ERROR;
+									else
+									{
+										fread(buffer, rows_tb_size, 1, fhandle);
+										int i = 0, rec_cnt = 0, rows = 1;
+										while (i < rows_tb_size)
+										{
+											printf("|");
+											cd_entry  *col = NULL;
+											int k, row_col = 0;
+											for (k = 0, col = (cd_entry*)((char*)tab_entry + tab_entry->cd_offset);
+												k < tab_entry->num_columns; k++, col++)
+											{	//while there are columns in tpd
+												
+												unsigned char col_len = (unsigned char)buffer[i];
+
+												if ((int)col_len > 0)
+												{
+													if (col->col_type == T_INT)
+													{	//for integer data
+														int b = i + 1;
+														char *int_b;
+														int elem;
+														int_b = (char*)calloc(1, sizeof(int));
+														for (int a = 0; a < sizeof(int); a++)
+														{
+															int_b[a] = buffer[b + a];
+														}
+														memcpy(&elem, int_b, sizeof(int));
+														printf("%11d|", elem);
+
+													}
+													else if (col->col_type == T_CHAR)
+													{	//for char data
+														int b = i + 1;
+														char *str_b;
+														int len = col->col_len + 1;
+														str_b = (char*)calloc(1, len);
+														for (int a = 0; a < len; a++)
+														{
+															str_b[a] = buffer[b + a];
+														}
+														str_b[len - 1] = '\0';
+														printf("%s", str_b);
+														int str_len = strlen(str_b);
+														int width = (col->col_len > strlen(col->col_name)) ?
+															col->col_len : strlen(col->col_name);
+														while (str_len < width)
+														{
+															printf(" ");
+															str_len++;
+														}
+														printf("|");
+													}
+												}
+												else
+												{	//for null
+													if ((int)col_len == 0)
+													{
+														int b = i + 1;
+														char *null_b;
+														int len = 0;
+														if (col->col_type == T_INT)
+															len = 11;
+														else if (col->col_type == T_CHAR)
+														{
+															len = (col->col_len > strlen(col->col_name)) ?
+																col->col_len : strlen(col->col_name);
+														}
+
+														null_b = (char*)calloc(1, len);
+														strcat(null_b, "-");
+														int str_len = strlen(null_b);
+														int width = (str_len > len) ? str_len : len;
+
+														//print to L or R depending on col type
+														if (col->col_type == T_INT)
+														{
+															while (str_len < width)
+															{
+																printf(" ");
+																str_len++;
+															}
+															printf("%s|", null_b);
+
+														}
+														else if (col->col_type == T_CHAR)
+														{
+															printf("%s", null_b);
+															while (str_len < width)
+															{
+																printf(" ");
+																str_len++;
+															}
+															printf("|");
+														}
+
+													}//if column is null
+													else
+														rc = DBFILE_CORRUPTION; //if byte is anything else
+												}
+												i += col->col_len+1; //move to next item/column
+											}
+											printf("\n");
+											rec_cnt += record_size; //jump to next record
+											i = rec_cnt;
+										}//end while
+										if (num_records > 0)
+											printf("%s\n", format); //print last line
+										printf("%d rows selected.\n", num_records);
+									}//end not memory error
+								}//file is not corrupt
+								fclose(fhandle);
+							}//end not memory error
+						}//not file open error
+					}//not table not exist
+				}//end identifer token
+			}//end 'from' keyword check
+		}//select * stmt
+		else if (cur->tok_class == function_name)
+		{
+			printf("found aggregate func: %s\n", cur->tok_string);
+			printf("aggregation function not yet implemented");
+		}//aggregate function in select
+		else if (cur->tok_class == identifier)
+		{
+			printf("cur: %s\n", cur->tok_string);
+			printf("other select not yet implemented");
+		}//found identifier in select
+		else
+		{	//if not table name or not aggregate function name
+			rc = INVALID_SELECT_STATEMENT;
+			cur->tok_value = INVALID;
+		}
+	}
+	
+	return rc;
+}
+
+int sem_delete(token_list *t_list)
+{
+	int rc = 0;
+	token_list *cur;
+	tpd_entry *tab_entry = NULL;
+	struct _stat file_stat;
+	table_file_header *recs = NULL;
+	token_list *values = NULL, *head = NULL; //to hold retrieved token list
+
+	cur = t_list;
+	cur = cur->next; //move past FROM keyword
+	if ((cur->tok_class != keyword) && (cur->tok_class != identifier) &&
+			(cur->tok_class != type_name))
+	{ 	//Error
+		rc = INVALID_DELETE_STATEMENT;
+		cur->tok_value = INVALID;
+	}
+	else
+	{ 	//identifier found - check that table exists
+		if ((tab_entry = get_tpd_from_list(cur->tok_string)) == NULL)
+		{
+			printf("cannot not delete from nonexistent table\n");
+			rc = TABLE_NOT_EXIST;
+			cur->tok_value = INVALID;
+		}
+		else
+		{
+			cur = cur->next;
+			if(cur->tok_value == K_WHERE)
+			{
+				printf("where clause for delete found\n");
+			}
+			else if(cur->tok_value == EOC)
+			{
+				printf("need to delete all rows of %s table\n", tab_entry->table_name);
+			}
+			else 
+			{
+				rc = INVALID_DELETE_STATEMENT;
+				cur->tok_value = INVALID;
+			}
+		}//end else for table exists
+	}//end else for identifier found
+
+	return rc;
+}
+
+int sem_update(token_list *t_list)
+{
+	int rc = 0;
+	token_list *cur;
+	tpd_entry *tab_entry = NULL;
+	struct _stat file_stat;
+	table_file_header *recs = NULL;
+	token_list *values = NULL, *head = NULL; //to hold retrieved token list
+
+	cur = t_list;
+	if ((cur->tok_class != keyword) && (cur->tok_class != identifier) &&
+			(cur->tok_class != type_name))
+	{ 	//Error
+		rc = INVALID_UPDATE_STATEMENT;
+		cur->tok_value = INVALID;
+	}
+	else
+	{
+		//identifier found - check that table exists
+		if ((tab_entry = get_tpd_from_list(cur->tok_string)) == NULL)
+		{
+			printf("cannot update nonexistent table\n");
+			rc = TABLE_NOT_EXIST;
+			cur->tok_value = INVALID;
+		}
+		else
+		{
+			cur = cur->next;
+			if(cur->tok_value == K_SET)
+			{
+				printf("need to get column name for table %s\n", tab_entry->table_name);
+			}
+			else 
+			{
+				rc = INVALID_UPDATE_STATEMENT;
+				cur->tok_value = INVALID;
+			}
+		}//end else for table exists
+	}
+
+	return rc;
+}
+

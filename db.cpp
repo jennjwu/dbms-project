@@ -667,6 +667,7 @@ int sem_create_table(token_list *t_list)
 			cur = cur->next;
 			if (cur->tok_value != S_LEFT_PAREN)
 			{	//Error
+				printf("missing ( for create table statement\n");
 				rc = INVALID_TABLE_DEFINITION;
 				cur->tok_value = INVALID;
 			}
@@ -708,6 +709,7 @@ int sem_create_table(token_list *t_list)
 							cur = cur->next;
 							if (cur->tok_class != type_name)
 							{	// Error
+								printf("invalid column type (only int and char(#) are supported)\n");
 								rc = INVALID_TYPE_NAME;
 								cur->tok_value = INVALID;
 							}
@@ -722,6 +724,7 @@ int sem_create_table(token_list *t_list)
 									if ((cur->tok_value != S_COMMA) && (cur->tok_value != K_NOT) &&
 										  (cur->tok_value != S_RIGHT_PAREN))
 									{
+										printf("invalid column definition. check for missing , or ).\n");
 										rc = INVALID_COLUMN_DEFINITION;
 										cur->tok_value = INVALID;
 									}
@@ -732,6 +735,7 @@ int sem_create_table(token_list *t_list)
 										
 										if ((cur->tok_value == K_NOT) && (cur->next->tok_value != K_NULL))
 										{
+											printf("invalid use of 'not' keyword\n");
 											rc = INVALID_COLUMN_DEFINITION;
 											cur->tok_value = INVALID;
 										}	
@@ -747,6 +751,7 @@ int sem_create_table(token_list *t_list)
 											/* I must have either a comma or right paren */
 											if ((cur->tok_value != S_RIGHT_PAREN) && (cur->tok_value != S_COMMA))
 											{
+												printf("missing ) or , in create table statement\n");
 												rc = INVALID_COLUMN_DEFINITION;
 												cur->tok_value = INVALID;
 											}
@@ -765,6 +770,7 @@ int sem_create_table(token_list *t_list)
 								{	// It must be char()
 									if (cur->tok_value != S_LEFT_PAREN)
 									{
+										printf("invalid column definition\n");
 										rc = INVALID_COLUMN_DEFINITION;
 										cur->tok_value = INVALID;
 									}
@@ -774,62 +780,75 @@ int sem_create_table(token_list *t_list)
 		
 										if (cur->tok_value != INT_LITERAL)
 										{
+											printf("invalid length for char\n");
 											rc = INVALID_COLUMN_LENGTH;
 											cur->tok_value = INVALID;
 										}
 										else
 										{	/* Got a valid integer - convert */
 											col_entry[cur_id].col_len = atoi(cur->tok_string);
-											rec_size += col_entry[cur_id].col_len + 1;
-											cur = cur->next;
-											
-											if (cur->tok_value != S_RIGHT_PAREN)
+											if(col_entry[cur_id].col_len > MAX_TOK_LEN)
 											{
-												rc = INVALID_COLUMN_DEFINITION;
+												printf("char length cannot exceed 32\n");
+												rc = INVALID_COLUMN_LENGTH;
 												cur->tok_value = INVALID;
 											}
-											else
-											{
+											else 
+											{	//char length <= 32
+												rec_size += col_entry[cur_id].col_len + 1;
 												cur = cur->next;
-						
-												if ((cur->tok_value != S_COMMA) && (cur->tok_value != K_NOT) &&
-														(cur->tok_value != S_RIGHT_PAREN))
+												
+												if (cur->tok_value != S_RIGHT_PAREN)
 												{
+													printf("missing ) for char definition\n");
 													rc = INVALID_COLUMN_DEFINITION;
 													cur->tok_value = INVALID;
 												}
 												else
 												{
-													if ((cur->tok_value == K_NOT) && (cur->next->tok_value != K_NULL))
+													cur = cur->next;
+													if ((cur->tok_value != S_COMMA) && (cur->tok_value != K_NOT) &&
+															(cur->tok_value != S_RIGHT_PAREN))
 													{
 														rc = INVALID_COLUMN_DEFINITION;
 														cur->tok_value = INVALID;
 													}
-													else if ((cur->tok_value == K_NOT) && (cur->next->tok_value == K_NULL))
-													{					
-														col_entry[cur_id].not_null = true;
-														cur = cur->next->next;
-													}
-		
-													if (!rc)
+													else
 													{
-														/* I must have either a comma or right paren */
-														if ((cur->tok_value != S_RIGHT_PAREN) &&															  (cur->tok_value != S_COMMA))
+														if ((cur->tok_value == K_NOT) && (cur->next->tok_value != K_NULL))
 														{
+															printf("invalid use of 'not' keyword\n");
 															rc = INVALID_COLUMN_DEFINITION;
 															cur->tok_value = INVALID;
 														}
-														else
+														else if ((cur->tok_value == K_NOT) && (cur->next->tok_value == K_NULL))
+														{					
+															col_entry[cur_id].not_null = true;
+															cur = cur->next->next;
+														}
+			
+														if (!rc)
 														{
-															if (cur->tok_value == S_RIGHT_PAREN)
+															/* I must have either a comma or right paren */
+															if ((cur->tok_value != S_RIGHT_PAREN) &&															  (cur->tok_value != S_COMMA))
 															{
-																column_done = true;
+																printf("invalid column definition. check for missing , or ).\n");
+																rc = INVALID_COLUMN_DEFINITION;
+																cur->tok_value = INVALID;
 															}
-															cur = cur->next;
+															else
+															{
+																if (cur->tok_value == S_RIGHT_PAREN)
+																{
+																	column_done = true;
+																}
+																cur = cur->next;
+															}
 														}
 													}
 												}
 											}
+											
 										}	/* end char(n) processing */
 									}
 								} /* end char processing */
@@ -861,6 +880,7 @@ int sem_create_table(token_list *t_list)
 
 					if (new_entry == NULL)
 					{
+						printf("there is a memory error...\n");
 						rc = MEMORY_ERROR;
 					}
 					else
@@ -892,6 +912,7 @@ int sem_create_table(token_list *t_list)
 					//Create and open file for read
 					if ((fhandle = fopen(str, "wbc")) == NULL)
 					{
+						printf("there is an error opening the file %s\n", str);
 						rc = FILE_OPEN_ERROR;
 					}
 					else
@@ -910,6 +931,7 @@ int sem_create_table(token_list *t_list)
 
 						if (cur == NULL)
 						{
+							printf("there is a memory error...\n");
 							rc = MEMORY_ERROR;
 						}
 						else
@@ -1167,193 +1189,194 @@ int sem_insert(token_list *t_list)
 	
 	//parse insert statement
 	cur = t_list;
-	if (cur->tok_class != identifier)
-	{	// Error
-		rc = INVALID_TABLE_NAME;
+	
+	//check that identifier table name exists
+	if ((exist_entry = get_tpd_from_list(cur->tok_string)) == NULL)
+	{
+		printf("cannot insert into nonexistent table\n");
+		rc = TABLE_NOT_EXIST;
 		cur->tok_value = INVALID;
 	}
 	else 
-	{	//check that identifier table name exists
-		if ((exist_entry = get_tpd_from_list(cur->tok_string)) == NULL)
-		{
-			rc = TABLE_NOT_EXIST;
+	{	//table exists, check for values keyword
+		cur = cur->next;
+		if (cur->tok_value != K_VALUES)
+		{	//Error
+			printf("values keyword missing\n");
+			rc = INVALID_INSERT_STATEMENT;
 			cur->tok_value = INVALID;
 		}
 		else 
-		{	//table exists, check for values keyword
+		{	//values keyword there, check for R parantheses
 			cur = cur->next;
-			if (cur->tok_value != K_VALUES)
+			if (cur->tok_value != S_LEFT_PAREN)
 			{	//Error
-				printf("values keyword missing\n");
+				printf("missing ( for insert statement\n");
 				rc = INVALID_INSERT_STATEMENT;
 				cur->tok_value = INVALID;
 			}
-			else 
-			{	//values keyword there, check for R parantheses
+			else
+			{	//L parantheses there, start col and val comparison
 				cur = cur->next;
-				if (cur->tok_value != S_LEFT_PAREN)
-				{	//Error
-					rc = INVALID_INSERT_STATEMENT;
-					cur->tok_value = INVALID;
-				}
-				else
-				{	//L parantheses there, start col and val comparison
-					cur = cur->next;
 
-					cd_entry  *col_entry = NULL;
-					int i;
-					for (i = 0, col_entry = (cd_entry*)((char*)exist_entry + exist_entry->cd_offset);
-						i < exist_entry->num_columns; i++, col_entry++)
-					{	//while there are columns in tpd
-						
-						if (cur->tok_value == S_COMMA)
-							cur = cur->next;
+				cd_entry  *col_entry = NULL;
+				int i;
+				for (i = 0, col_entry = (cd_entry*)((char*)exist_entry + exist_entry->cd_offset);
+					i < exist_entry->num_columns; i++, col_entry++)
+				{	//while there are columns in tpd
+					
+					if (cur->tok_value == S_COMMA)
+						cur = cur->next;
 
-						if (cur->tok_value == S_RIGHT_PAREN)
-						{	//Error
-							printf("number of columns and insert values don't match\n");
-							rc = INSERT_VAL_COL_LEN_MISMATCH;
-							cur->tok_value = INVALID;
-						}
-						else
-						{	//else, if token list is not shorter than number of columns, continue parsing
-							if ((cur->tok_value == INT_LITERAL) && (col_entry->col_type == T_INT))
-							{	//for int literal
+					if (cur->tok_value == S_RIGHT_PAREN)
+					{	//Error
+						printf("number of columns and insert values don't match\n");
+						rc = INSERT_VAL_COL_LEN_MISMATCH;
+						cur->tok_value = INVALID;
+						return rc;
+					}
+					else
+					{	//else, if token list is not shorter than number of columns, continue parsing
+						if ((cur->tok_value == INT_LITERAL) && (col_entry->col_type == T_INT))
+						{	//for int literal
 
-								//check that int literal is not greater than max int
-								if (strlen(cur->tok_string) > 10)
-								{
-									printf("integer value error\n");
-									rc = INSERT_INT_SIZE_FAILURE;
-									cur->tok_value = INVALID;
-									return rc;
-								}
-								else if ((strlen(cur->tok_string) == 10) && (strcmp(cur->tok_string, "2147483647") > 0))
-								{
-									printf("integer value error\n");
-									rc = INSERT_INT_SIZE_FAILURE;
-									cur->tok_value = INVALID;
-									return rc;
-								}
-								else
-								{
-									//temporary token holder
-									token_list *temp = (token_list *)calloc(1, sizeof(token_list));
-									temp->tok_class = cur->tok_class;
-									temp->tok_value = cur->tok_value;
-									strcpy(temp->tok_string, cur->tok_string);
-									temp->next = NULL;
-
-									//set values linked list
-									if (values == NULL)
-									{
-										values = temp;
-										head = temp;
-									}
-									else
-									{
-										head->next = temp;
-										head = temp;
-									}
-									cur = cur->next;
-								}
-							}//end int literal
-							else if ((cur->tok_value == STRING_LITERAL) && (col_entry->col_type == T_CHAR))
-							{	//for char or string literal
-								int str_size = strlen(cur->tok_string);
-
-								if (str_size <= col_entry->col_len)
-								{
-									//temporary token holder
-									token_list *temp = (token_list *)calloc(1, sizeof(token_list));
-									//temp->tok_class = cur->tok_class; 
-									temp->tok_class = col_entry->col_len; //hack to keep col max len
-									temp->tok_value = cur->tok_value;
-									strcpy(temp->tok_string, cur->tok_string);
-									temp->next = NULL;
-									
-									//set values linked list
-									if (values == NULL)
-									{
-										values = temp;
-										head = temp;
-									}
-									else
-									{
-										head->next = temp;
-										head = temp;
-									}
-
-									//continue to next token
-									cur = cur->next;
-									
-								}
-								else
-								{	//str size too long
-									printf("char length error\n");
-									rc = INSERT_CHAR_LENGTH_MISMATCH;
-									cur->tok_value = INVALID;
-									return rc;
-								}
-							}//end string literal
-							else if (cur->tok_value == K_NULL)
-							{	//Check for not null constraint
-								
-								if (col_entry->not_null)
-								{
-									printf("not null constraint\n");
-									rc = INSERT_NULL_FAILURE;
-									cur->tok_value = INVALID;
-									return rc;
-								}
-								else
-								{	//nullable
-
-									//temporary token holder
-									token_list *temp = (token_list *)calloc(1, sizeof(token_list));
-									//temp->tok_class = cur->tok_class; //1 for keyword
-									//hack: set tok_class to hold column_len
-									temp->tok_class = col_entry->col_len;
-									temp->tok_value = cur->tok_value; //15 for null keyword
-									strcpy(temp->tok_string, cur->tok_string);
-									temp->next = NULL;
-
-									//set values linked list
-									if (values == NULL)
-									{
-										values = temp;
-										head = temp;
-									}
-									else
-									{
-										head->next = temp;
-										head = temp;
-									}
-									
-									//continue to next token
-									cur = cur->next;
-								}
-							}//end null
-							else
+							//check that int literal is not greater than max int
+							if (strlen(cur->tok_string) > 10)
 							{
-								printf("type mismatch\n");
-								rc = INSERT_VALUE_TYPE_MISMATCH;
+								printf("integer value error\n");
+								rc = INSERT_INT_SIZE_FAILURE;
 								cur->tok_value = INVALID;
 								return rc;
 							}
-						}//if not EOC
-					}//end for
+							else if ((strlen(cur->tok_string) == 10) && (strcmp(cur->tok_string, "2147483647") > 0))
+							{
+								printf("integer value error\n");
+								rc = INSERT_INT_SIZE_FAILURE;
+								cur->tok_value = INVALID;
+								return rc;
+							}
+							else
+							{
+								//temporary token holder
+								token_list *temp = (token_list *)calloc(1, sizeof(token_list));
+								temp->tok_class = cur->tok_class;
+								temp->tok_value = cur->tok_value;
+								strcpy(temp->tok_string, cur->tok_string);
+								temp->next = NULL;
 
-					if (cur->tok_value == S_RIGHT_PAREN)
-					{
-						//got R parentheses
-						cur = cur->next;
-					}
+								//set values linked list
+								if (values == NULL)
+								{
+									values = temp;
+									head = temp;
+								}
+								else
+								{
+									head->next = temp;
+									head = temp;
+								}
+								cur = cur->next;
+							}
+						}//end int literal
+						else if ((cur->tok_value == STRING_LITERAL) && (col_entry->col_type == T_CHAR))
+						{	//for char or string literal
+							int str_size = strlen(cur->tok_string);
 
-				}//end else col/val comparison
-			}//end else at L parentheses
-		}//end else where table name found
-	}//end else for parsing
+							if (str_size <= col_entry->col_len)
+							{
+								//temporary token holder
+								token_list *temp = (token_list *)calloc(1, sizeof(token_list));
+								//temp->tok_class = cur->tok_class; 
+								temp->tok_class = col_entry->col_len; //hack to keep col max len
+								temp->tok_value = cur->tok_value;
+								strcpy(temp->tok_string, cur->tok_string);
+								temp->next = NULL;
+								
+								//set values linked list
+								if (values == NULL)
+								{
+									values = temp;
+									head = temp;
+								}
+								else
+								{
+									head->next = temp;
+									head = temp;
+								}
+
+								//continue to next token
+								cur = cur->next;
+								
+							}
+							else
+							{	//str size too long
+								printf("char length error\n");
+								rc = INSERT_CHAR_LENGTH_MISMATCH;
+								cur->tok_value = INVALID;
+								return rc;
+							}
+						}//end string literal
+						else if (cur->tok_value == K_NULL)
+						{	//Check for not null constraint
+							
+							if (col_entry->not_null)
+							{
+								printf("not null constraint\n");
+								rc = INSERT_NULL_FAILURE;
+								cur->tok_value = INVALID;
+								return rc;
+							}
+							else
+							{	//nullable
+
+								//temporary token holder
+								token_list *temp = (token_list *)calloc(1, sizeof(token_list));
+								//temp->tok_class = cur->tok_class; //1 for keyword
+								//hack: set tok_class to hold column_len
+								temp->tok_class = col_entry->col_len;
+								temp->tok_value = cur->tok_value; //15 for null keyword
+								strcpy(temp->tok_string, cur->tok_string);
+								temp->next = NULL;
+
+								//set values linked list
+								if (values == NULL)
+								{
+									values = temp;
+									head = temp;
+								}
+								else
+								{
+									head->next = temp;
+									head = temp;
+								}
+								
+								//continue to next token
+								cur = cur->next;
+							}
+						}//end null
+						else
+						{
+							printf("type mismatch\n");
+							rc = INSERT_VALUE_TYPE_MISMATCH;
+							cur->tok_value = INVALID;
+							return rc;
+						}
+					}//if not EOC
+				}//end for
+
+				if (cur->tok_value == S_RIGHT_PAREN)
+				{
+					//got R parentheses
+					cur = cur->next;
+				}
+				else 
+				{
+					printf("missing ) for insert statement\n");
+					rc = INVALID_INSERT_STATEMENT;
+				}
+			}//end else col/val comparison
+		}//end else at L parentheses
+	}//end else where table name found
 
 	//do insert (write to .tab)
 	if ((!rc) && (cur->tok_value == EOC))
@@ -1469,6 +1492,7 @@ int sem_insert(token_list *t_list)
 	}//end insert
 	else
 	{	// there is extra stuff after R parantheses or extra values given
+		printf("invalid insert statement\n");
 		rc = INVALID_INSERT_STATEMENT;
 		cur->tok_value = INVALID;
 	}//end error on insert
@@ -1488,6 +1512,7 @@ int sem_select(token_list *t_list)
 	cur = t_list;
 	if ((cur->tok_value != S_STAR) && (cur->tok_class != identifier) && (cur->tok_class != function_name))
 	{	// Error
+		printf("invalid select statement\n");
 		rc = INVALID_SELECT_STATEMENT;
 		cur->tok_value = INVALID;
 	}
@@ -1498,31 +1523,36 @@ int sem_select(token_list *t_list)
 			cur = cur->next;
 			if (cur->tok_value != K_FROM)
 			{	// Error
+				printf("missing 'from' keyword in select statement\n");
 				rc = INVALID_SELECT_STATEMENT;
 				cur->tok_value = INVALID;
 			}
 			else
 			{	//'from' keyword found, move to next token
 				cur = cur->next;
-				if (cur->tok_class != identifier)
-				{ //table name not found
+				if(cur->tok_value == EOC)
+				{
+					printf("no table name to select from given\n");
 					rc = INVALID_SELECT_STATEMENT;
 					cur->tok_value = INVALID;
 				}
+				else if ((tab_entry = get_tpd_from_list(cur->tok_string)) == NULL)
+				{
+					printf("cannot select from nonexistent table\n");
+					rc = TABLE_NOT_EXIST;
+					cur->tok_value = INVALID;
+				}
 				else
-				{ //identifier found - check that table exists
-					if ((tab_entry = get_tpd_from_list(cur->tok_string)) == NULL)
+				{
+					cur = cur->next; //look for clause after table name
+					if (cur->tok_value == EOC)
 					{
-						rc = TABLE_NOT_EXIST;
-						cur->tok_value = INVALID;
-					}
-					else
-					{
+						//do select * from table
 						/* read from <table_name>.tab file*/
-						char str[MAX_IDENT_LEN + 4 + 3];
+						char str[MAX_IDENT_LEN];
 						strcpy(str, tab_entry->table_name); //get table name
 						strcat(str, ".tab");
-						
+
 						//get column headers
 						char format[MAX_PRINT_LEN], head[MAX_PRINT_LEN];
 						strcpy(format, "+");
@@ -1560,6 +1590,7 @@ int sem_select(token_list *t_list)
 						FILE *fhandle = NULL;
 						if ((fhandle = fopen(str, "rbc")) == NULL)
 						{
+							printf("there was an error opening the file %s\n",str);
 							rc = FILE_OPEN_ERROR;
 						}//end file open error
 						else
@@ -1569,6 +1600,7 @@ int sem_select(token_list *t_list)
 
 							if (!recs)
 							{
+								printf("there was a memory error...\n");
 								rc = MEMORY_ERROR;
 							}//end memory error
 							else
@@ -1579,7 +1611,7 @@ int sem_select(token_list *t_list)
 								if (recs->file_size != file_stat.st_size)
 								{
 									printf("ptr file_size: %d\n", recs->file_size);
-									printf("in db corruption\n");
+									printf("read file size and calculated size does not match. db file is corrupted. exiting...\n");
 									rc = DBFILE_CORRUPTION;
 									return rc;
 								}
@@ -1709,8 +1741,52 @@ int sem_select(token_list *t_list)
 								fclose(fhandle);
 							}//end not memory error
 						}//not file open error
-					}//not table not exist
-				}//end identifer token
+					}
+					else if (cur->tok_value == K_WHERE)
+					{
+						if(cur->next->tok_value == EOC)
+						{
+							printf("improper use of 'where' keyword. a clause must follow\n");
+							rc = INVALID_WHERE_CLAUSE_IN_SELECT;
+							cur->tok_value = INVALID;
+						}
+						else
+						{
+							cur = cur->next;
+							printf("where clauses not yet implemented\n");
+						}
+					}
+					else if (cur->tok_value == K_ORDER)
+					{
+						cur = cur->next; //move to 'by' keyword
+						if(cur->tok_value == K_BY)
+						{
+							if(cur->next->tok_value == EOC)
+							{
+								printf("improper use of 'order by' keywords. a column name must follow\n");
+								rc = INVALID_ORDER_BY_CLAUSE_IN_SELECT;
+								cur->tok_value = INVALID;
+							}
+							else
+							{
+								cur = cur->next; //move to column name
+								printf("order by clauses not yet implemented\n");
+							}
+						}
+						else
+						{
+							printf("improper use of 'order' keyword. it must be followed by keyword 'by'.\n");
+							rc = INVALID_ORDER_BY_CLAUSE_IN_SELECT;
+							cur->tok_value = INVALID;
+						}
+					}
+					else
+					{//other things follow the select statement
+						printf("invalid select statement:\n  only a 'where' clause or 'order by' clause may follow the table name\n");
+						rc = INVALID_SELECT_STATEMENT;
+						cur->tok_value = INVALID;
+					}
+				}//not table not exist
 			}//end 'from' keyword check
 		}//select * stmt
 		else if (cur->tok_class == function_name)
@@ -1747,6 +1823,7 @@ int sem_delete(token_list *t_list)
 	if ((cur->tok_class != keyword) && (cur->tok_class != identifier) &&
 			(cur->tok_class != type_name))
 	{ 	//Error
+		printf("invalid delete statement\n");
 		rc = INVALID_DELETE_STATEMENT;
 		cur->tok_value = INVALID;
 	}
@@ -1754,7 +1831,7 @@ int sem_delete(token_list *t_list)
 	{ 	//identifier found - check that table exists
 		if ((tab_entry = get_tpd_from_list(cur->tok_string)) == NULL)
 		{
-			printf("cannot not delete from nonexistent table\n");
+			printf("cannot delete from nonexistent table\n");
 			rc = TABLE_NOT_EXIST;
 			cur->tok_value = INVALID;
 		}
@@ -1771,6 +1848,7 @@ int sem_delete(token_list *t_list)
 			}
 			else 
 			{
+				printf("invalid delete statement\n");
 				rc = INVALID_DELETE_STATEMENT;
 				cur->tok_value = INVALID;
 			}
@@ -1793,6 +1871,7 @@ int sem_update(token_list *t_list)
 	if ((cur->tok_class != keyword) && (cur->tok_class != identifier) &&
 			(cur->tok_class != type_name))
 	{ 	//Error
+		printf("invalid update statement\n");
 		rc = INVALID_UPDATE_STATEMENT;
 		cur->tok_value = INVALID;
 	}
@@ -1814,6 +1893,7 @@ int sem_update(token_list *t_list)
 			}
 			else 
 			{
+				printf("invalid update statement. missing set clause\n");
 				rc = INVALID_UPDATE_STATEMENT;
 				cur->tok_value = INVALID;
 			}
@@ -1823,3 +1903,38 @@ int sem_update(token_list *t_list)
 	return rc;
 }
 
+/*table_file_header * getTable(char table_name[])
+{
+	int rc = 0;
+	table_file_header *table_content = NULL;
+	struct _stat file_stat;
+
+	printf("in getTable\n");
+
+	FILE *fhandle = NULL;
+	if ((fhandle = fopen(table_name, "rbc")) == NULL)
+	{
+		printf("there was an error opening the file %s\n",table_name);
+		rc = FILE_OPEN_ERROR;
+		return 0;
+	}//end file open error
+	else
+	{
+		_fstat(_fileno(fhandle), &file_stat);
+		table_content = (table_file_header*)calloc(1, file_stat.st_size);
+
+		if (!table_name)
+		{
+			printf("there was a memory error...\n");
+			rc = MEMORY_ERROR;
+		}//end memory error
+		else
+		{
+			fread(table_content, file_stat.st_size, 1, fhandle);
+			fflush(fhandle);
+			fclose(fhandle);
+		}
+	}
+
+	return table_content;
+}*/

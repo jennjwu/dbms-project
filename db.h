@@ -191,6 +191,7 @@ typedef enum error_return_codes
 	INVALID_SELECT_STATEMENT = -350,   	// -350
 	INVALID_WHERE_CLAUSE_IN_SELECT,		// -349
 	INVALID_ORDER_BY_CLAUSE_IN_SELECT,	// -348
+	/* other errors */
 	FILE_OPEN_ERROR = -299,		// -299
 	DBFILE_CORRUPTION,			// -298
 	MEMORY_ERROR				// -297

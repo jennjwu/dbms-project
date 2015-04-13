@@ -895,61 +895,60 @@ int sem_create_table(token_list *t_list)
 						rc = add_tpd_to_list(new_entry);
 
 						free(new_entry);
-					}
 
-					// Round rec_size to higher 4-byte boundary
-					int rem = rec_size % 4;
-					if (rem != 0)
-						rec_size = (int)ceil(rec_size / 4.0) * 4;
+						// Round rec_size to higher 4-byte boundary
+						int rem = rec_size % 4;
+						if (rem != 0)
+							rec_size = (int)ceil(rec_size / 4.0) * 4;
 
-					//Create <table_name>.tab file
-					char str[MAX_IDENT_LEN + 1];
-					strcpy(str, tab_entry.table_name); //get table name
-					strcat(str, ".tab");
+						//Create <table_name>.tab file
+						char str[MAX_IDENT_LEN + 1];
+						strcpy(str, tab_entry.table_name); //get table name
+						strcat(str, ".tab");
 
-					FILE *fhandle = NULL;
-					
-					//Create and open file for read
-					if ((fhandle = fopen(str, "wbc")) == NULL)
-					{
-						printf("there is an error opening the file %s\n", str);
-						rc = FILE_OPEN_ERROR;
-					}
-					else
-					{
-						table_file_header ptr;
-						memset(&ptr, '\0', sizeof(table_file_header));
-						ptr.record_size = rec_size;
-						ptr.num_records = 0; //no records yet
-						ptr.file_size = sizeof(table_file_header);
-						ptr.record_offset = sizeof(table_file_header);
-						ptr.file_header_flag = 0; //TODO: what is this for?
-						ptr.tpd_ptr = NULL;
-
-						table_file_header *cur = NULL;
-						cur = (table_file_header*)calloc(1, sizeof(table_file_header));
-
-						if (cur == NULL)
+						FILE *fhandle = NULL;
+						
+						//Create and open file for read
+						if ((fhandle = fopen(str, "wbc")) == NULL)
 						{
-							printf("there is a memory error...\n");
-							rc = MEMORY_ERROR;
+							printf("there is an error opening the file %s\n", str);
+							rc = FILE_OPEN_ERROR;
 						}
 						else
 						{
-							memcpy((void*)cur, (void*)&ptr, sizeof(table_file_header));
-							fwrite(cur, sizeof(table_file_header), 1, fhandle);
-							fflush(fhandle);
-							fclose(fhandle);
+							table_file_header ptr;
+							memset(&ptr, '\0', sizeof(table_file_header));
+							ptr.record_size = rec_size;
+							ptr.num_records = 0; //no records yet
+							ptr.file_size = sizeof(table_file_header);
+							ptr.record_offset = sizeof(table_file_header);
+							ptr.file_header_flag = 0; //TODO: what is this for?
+							ptr.tpd_ptr = NULL;
 
-							free(cur);
-						}
-					}
+							table_file_header *cur = NULL;
+							cur = (table_file_header*)calloc(1, sizeof(table_file_header));
 
-					printf("tablename is %s\n", str);
+							if (cur == NULL)
+							{
+								printf("there is a memory error...\n");
+								rc = MEMORY_ERROR;
+							}
+							else
+							{
+								memcpy((void*)cur, (void*)&ptr, sizeof(table_file_header));
+								fwrite(cur, sizeof(table_file_header), 1, fhandle);
+								fflush(fhandle);
+								fclose(fhandle);
+
+								free(cur);
+							}
+							printf("tablename is %s\n", str);
+						} //file opened for write
+					} //end new_entry != NULL
 				}//end if !rc
 			}
-		}
-	}
+		} //table is unique (not duplicate)
+	} //table name is valid
 
 	return rc;
 }
@@ -1196,7 +1195,7 @@ int sem_insert(token_list *t_list)
 		printf("cannot insert into nonexistent table\n");
 		rc = TABLE_NOT_EXIST;
 		cur->tok_value = INVALID;
-	}
+	} //table does not exist
 	else 
 	{	//table exists, check for values keyword
 		cur = cur->next;
@@ -1373,129 +1372,133 @@ int sem_insert(token_list *t_list)
 				{
 					printf("missing ) for insert statement\n");
 					rc = INVALID_INSERT_STATEMENT;
+					return rc;
 				}
 			}//end else col/val comparison
 		}//end else at L parentheses
 	}//end else where table name found
 
 	//do insert (write to .tab)
-	if ((!rc) && (cur->tok_value == EOC))
+	if (!rc)
 	{	//col/values match tpd columns definitions
-		
-		// Write to <table_name>.tab file
-		char str[MAX_IDENT_LEN + 1];
-		strcpy(str, exist_entry->table_name); //get table name
-		strcat(str, ".tab");
-		FILE *fhandle = NULL;
-		
-		//Open file for read
-		if ((fhandle = fopen(str, "rbc")) == NULL)
+		if(cur->tok_value == EOC)
 		{
-			rc = FILE_OPEN_ERROR;
-		}//end file open error
-		else
-		{
-			_fstat(_fileno(fhandle), &file_stat);
-			ptr = (table_file_header*)calloc(1, file_stat.st_size);
+			// Write to <table_name>.tab file
+			char str[MAX_IDENT_LEN + 1];
+			strcpy(str, exist_entry->table_name); //get table name
+			strcat(str, ".tab");
+			FILE *fhandle = NULL;
 			
-			if (!ptr)
+			//Open file for read
+			if ((fhandle = fopen(str, "rbc")) == NULL)
 			{
-				rc = MEMORY_ERROR;
-			}//end memory error
+				rc = FILE_OPEN_ERROR;
+			}//end file open error
 			else
 			{
-				fread(ptr, file_stat.st_size, 1, fhandle);
-				fflush(fhandle);
-				fclose(fhandle);
-
-				if (ptr->file_size != file_stat.st_size)
+				_fstat(_fileno(fhandle), &file_stat);
+				ptr = (table_file_header*)calloc(1, file_stat.st_size);
+				
+				if (!ptr)
 				{
-					printf("%s file_size: %d\n", str, ptr->file_size);
-					printf("in db file corruption\n");
-					rc = DBFILE_CORRUPTION;
-					return rc;
-				}
+					rc = MEMORY_ERROR;
+				}//end memory error
 				else
 				{
-					int old_size = 0;
-					old_size = ptr->file_size;
-					int rec_offset = ptr->record_offset;
+					fread(ptr, file_stat.st_size, 1, fhandle);
+					fflush(fhandle);
+					fclose(fhandle);
 
-					//open file for write to update file header and add new row entries
-					if ((fhandle = fopen(str, "wbc")) == NULL)
+					if (ptr->file_size != file_stat.st_size)
 					{
-						rc = FILE_OPEN_ERROR;
+						printf("%s file_size: %d\n", str, ptr->file_size);
+						printf("in db file corruption\n");
+						rc = DBFILE_CORRUPTION;
 					}
 					else
-					{	//update table file header contents
-						ptr->num_records++;
-						ptr->file_size += ptr->record_size; //add one record size
-						ptr->tpd_ptr = NULL;
-						printf("%s new size = %d\n", str, ptr->file_size);
+					{
+						int old_size = 0;
+						old_size = ptr->file_size;
+						int rec_offset = ptr->record_offset;
 
-						//write updated table file header
-						fwrite(ptr, file_stat.st_size, 1, fhandle);
-
-						//write new row entry
-						token_list *llist = values;
-						while (llist != NULL)
+						//open file for write to update file header and add new row entries
+						if ((fhandle = fopen(str, "wbc")) == NULL)
 						{
-							unsigned char item_len = 0;
-							if (llist->tok_value == STRING_LITERAL)
+							rc = FILE_OPEN_ERROR;
+							return rc;
+						}
+						else
+						{	//update table file header contents
+							ptr->num_records++;
+							ptr->file_size += ptr->record_size; //add one record size
+							ptr->tpd_ptr = NULL;
+							printf("%s new size = %d\n", str, ptr->file_size);
+
+							//write updated table file header
+							fwrite(ptr, file_stat.st_size, 1, fhandle);
+
+							//write new row entry
+							token_list *llist = values;
+							while (llist != NULL)
 							{
-								item_len = strlen(llist->tok_string);
-								//hack to get len of item (tok_class)
-								fwrite(&item_len, sizeof(unsigned char), 1, fhandle);
-								fwrite(&llist->tok_string, llist->tok_class, 1, fhandle);
-							}
-							else if (llist->tok_value == INT_LITERAL)
-							{
-								int item = atoi(llist->tok_string);
-								item_len = sizeof(int); //4 bytes for int
-								fwrite(&item_len, sizeof(unsigned char), 1, fhandle);
-								fwrite(&item, item_len, 1, fhandle);
-							}
-							else if (llist->tok_value == K_NULL)
-							{
-								item_len = 0;
-								int counter = llist->tok_class; //hack to get null'ed col_len
-								int item = 0; //zero out column
-								fwrite(&item_len, sizeof(unsigned char), 1, fhandle);
-								while (counter > 0)
+								unsigned char item_len = 0;
+								if (llist->tok_value == STRING_LITERAL)
 								{
-									fwrite(&item, sizeof(unsigned char), 1, fhandle);
-									counter--;
+									item_len = strlen(llist->tok_string);
+									//hack to get len of item (tok_class)
+									fwrite(&item_len, sizeof(unsigned char), 1, fhandle);
+									fwrite(&llist->tok_string, llist->tok_class, 1, fhandle);
 								}
+								else if (llist->tok_value == INT_LITERAL)
+								{
+									int item = atoi(llist->tok_string);
+									item_len = sizeof(int); //4 bytes for int
+									fwrite(&item_len, sizeof(unsigned char), 1, fhandle);
+									fwrite(&item, item_len, 1, fhandle);
+								}
+								else if (llist->tok_value == K_NULL)
+								{
+									item_len = 0;
+									int counter = llist->tok_class; //hack to get null'ed col_len
+									int item = 0; //zero out column
+									fwrite(&item_len, sizeof(unsigned char), 1, fhandle);
+									while (counter > 0)
+									{
+										fwrite(&item, sizeof(unsigned char), 1, fhandle);
+										counter--;
+									}
+								}
+
+								llist = llist->next;
+							}
+							
+							//get current file size
+							fseek(fhandle, 0, SEEK_END);
+							int cur_size = ftell(fhandle);
+
+							//padding rec with zeroes if rec_size was rounded up to 4 byte boundary
+							while (cur_size < ptr->file_size)
+							{
+								int pad = 0;
+								fwrite(&pad, sizeof(unsigned char), 1, fhandle);
+								cur_size++;
 							}
 
-							llist = llist->next;
-						}
-						
-						//get current file size
-						fseek(fhandle, 0, SEEK_END);
-						int cur_size = ftell(fhandle);
-
-						//padding rec with zeroes if rec_size was rounded up to 4 byte boundary
-						while (cur_size < ptr->file_size)
-						{
-							int pad = 0;
-							fwrite(&pad, sizeof(unsigned char), 1, fhandle);
-							cur_size++;
-						}
-
-						fflush(fhandle);
-						fclose(fhandle);
-					}//end file open for write
-				}//end check that file size is correct
-			}//end not memory error
-		}//end file open for read
+							fflush(fhandle);
+							fclose(fhandle);
+						}//end file open for write
+					}//end check that file size is correct
+				}//end not memory error
+			}//end file open for read
+		}//at EOC
+		else
+		{
+			// there is extra stuff after R parantheses or extra values given
+			printf("invalid insert statement\n");
+			rc = INVALID_INSERT_STATEMENT;
+			cur->tok_value = INVALID;
+		}
 	}//end insert
-	else
-	{	// there is extra stuff after R parantheses or extra values given
-		printf("invalid insert statement\n");
-		rc = INVALID_INSERT_STATEMENT;
-		cur->tok_value = INVALID;
-	}//end error on insert
 	
 	return rc;
 }
@@ -1797,7 +1800,7 @@ int sem_select(token_list *t_list)
 		else if (cur->tok_class == identifier)
 		{
 			printf("cur: %s\n", cur->tok_string);
-			printf("other select not yet implemented");
+			printf("column select not yet implemented");
 		}//found identifier in select
 		else
 		{	//if not table name or not aggregate function name
@@ -1815,7 +1818,7 @@ int sem_delete(token_list *t_list)
 	token_list *cur;
 	tpd_entry *tab_entry = NULL;
 	struct _stat file_stat;
-	table_file_header *recs = NULL;
+	table_file_header *header = NULL;
 	token_list *values = NULL, *head = NULL; //to hold retrieved token list
 
 	cur = t_list;
@@ -1844,8 +1847,49 @@ int sem_delete(token_list *t_list)
 			}
 			else if(cur->tok_value == EOC)
 			{
-				printf("need to delete all rows of %s table\n", tab_entry->table_name);
-			}
+				char str[MAX_IDENT_LEN + 1];
+				strcpy(str, tab_entry->table_name); //get table name
+				strcat(str, ".tab");
+				FILE *fhandle = NULL;
+
+				if ((fhandle = fopen(str, "rbc")) == NULL)
+					rc = FILE_OPEN_ERROR;
+				else
+				{
+					_fstat(_fileno(fhandle), &file_stat);
+					header = (table_file_header*)calloc(1, file_stat.st_size);
+					if(!header)
+						rc = MEMORY_ERROR;
+					else
+					{
+						printf("open for read ok\n");
+						fread(header, sizeof(table_file_header), 1, fhandle);
+						fflush(fhandle);
+						fclose(fhandle);
+
+						printf("file size is %d\n", header->file_size);
+						printf("record size is %d\n", header->record_size);
+						printf("num_recs is %d\n", header->num_records);
+						printf("rec offset is at %d\n", header->record_offset);
+
+						header->num_records = 0; // update to zero records
+						header->file_size = sizeof(table_file_header);
+
+						printf("new file size is %d\n", header->file_size);
+						printf("new num_recs is %d\n", header->num_records);
+						
+						if ((fhandle = fopen(str, "wbc")) == NULL)
+							rc = FILE_OPEN_ERROR;
+						else
+						{
+							fwrite(header, sizeof(table_file_header), 1, fhandle);
+							fflush(fhandle);
+							fclose(fhandle);
+							printf("file write ok\n");
+						}
+					}//not memory error	
+				}//file open OK
+			}//delete all rows (no where clause)
 			else 
 			{
 				printf("invalid delete statement\n");

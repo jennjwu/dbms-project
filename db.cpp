@@ -1957,11 +1957,15 @@ int sem_delete(token_list *t_list)
 												else
 												{
 													fread(buffer, rows_tb_size, 1, fhandle);
+													fflush(fhandle);
 													fseek(fhandle, offset, SEEK_SET);
 
-													int i = 0, rec_cnt = 0, rows = 1, matches = 0;
+													//int rowArray[num_records];
+
+													int i = 0, rec_cnt = 0, rows = 1, matches = 0, keepers=0;
 													while (i < rows_tb_size)
 													{
+														printf("moving to this index now %d\n",i);
 														cd_entry  *col = NULL;
 														int k, row_col = 0;
 														for (k = 0, col = (cd_entry*)((char*)tab_entry + tab_entry->cd_offset);
@@ -1984,13 +1988,19 @@ int sem_delete(token_list *t_list)
 																	if(elem != col_value)
 																	{
 																		printf("|row #%d| %11d|\n",rows, elem);
-																		fread(temp, record_size+1, 1, fhandle);
-																		//something wrong with fread
+																		printf("adding to temp: %d\n", keepers);
+																		int adder = keepers*record_size;
+																		printf("freading now and adding to temp at: %d\n", adder);
+																		fread(temp+adder, record_size, 1, fhandle);
+																		keepers++;
 																	}
 																	else
 																	{	//match found
-																		printf("|row #%d| %11d|matches\n",rows, elem);
+																		printf("|row #%d| %11d|delete match\n",rows, elem);
 																		matches++;
+																		//skip record and increment fhandle pointer by one record size
+																		printf("skipping ahead now\n");
+																		fseek(fhandle, record_size, SEEK_CUR);
 																	}
 																}
 																else if((int)col_len == 0)
@@ -2010,15 +2020,16 @@ int sem_delete(token_list *t_list)
 																		str_len++;
 																	}
 																	printf("%s|is null\n", null_b);
-																	fread(temp, record_size+1, 1, fhandle);
+																	fread(temp, record_size, 1, fhandle);
 																}
+																k++;
 															}
-															
-															i += col->col_len+1; //move to next item/column
+															i += col->col_len+1; //move to next item/column	
 														}
 														rows++;
 														rec_cnt += record_size; //jump to next record
 														i = rec_cnt;
+
 													}//end while
 													if(matches == 0)
 													{
@@ -2028,9 +2039,10 @@ int sem_delete(token_list *t_list)
 													}
 													else
 													{
-														printf("number to delete %d, and number to rewrite %d\n", matches,num_records-matches);
+														int to_keep = num_records - matches;
+														printf("number to delete %d, and number to rewrite %d\n", matches, to_keep);
 														
-														int n = record_size * matches;
+														int n = record_size * to_keep;
 														printf("size of record_size is %d and n is : %d\n",record_size,n);
 														//fwrite(newbuff, record_size*matches, 1, fhandle);
 														for(int k = 0; k < n; k++)
@@ -2045,8 +2057,8 @@ int sem_delete(token_list *t_list)
 														}
 														else
 														{
-															recs->num_records = matches;
-															recs->file_size = matches * record_size + sizeof(table_file_header);
+															recs->num_records = to_keep;
+															recs->file_size = to_keep * record_size + sizeof(table_file_header);
 															fwrite(recs, sizeof(table_file_header), 1, fhandle);
 															fwrite(temp, n, 1, fhandle);
 														}

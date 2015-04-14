@@ -1420,73 +1420,83 @@ int sem_insert(token_list *t_list)
 						int old_size = 0;
 						old_size = ptr->file_size;
 						int rec_offset = ptr->record_offset;
-
-						//open file for write to update file header and add new row entries
-						if ((fhandle = fopen(str, "wbc")) == NULL)
+						int numb_recs = ptr->num_records;
+						
+						if(numb_recs >= 100)
 						{
-							rc = FILE_OPEN_ERROR;
-							return rc;
+							printf("maximum num records of 100 reached. cannot insert more tuples\n");
+							rc = MAX_NUM_RECORDS;
+							cur->tok_value = INVALID;
 						}
 						else
-						{	//update table file header contents
-							ptr->num_records++;
-							ptr->file_size += ptr->record_size; //add one record size
-							ptr->tpd_ptr = NULL;
-							printf("%s new size = %d\n", str, ptr->file_size);
-
-							//write updated table file header
-							fwrite(ptr, file_stat.st_size, 1, fhandle);
-
-							//write new row entry
-							token_list *llist = values;
-							while (llist != NULL)
+						{
+							//open file for write to update file header and add new row entries
+							if ((fhandle = fopen(str, "wbc")) == NULL)
 							{
-								unsigned char item_len = 0;
-								if (llist->tok_value == STRING_LITERAL)
+								rc = FILE_OPEN_ERROR;
+								return rc;
+							}
+							else
+							{	//update table file header contents
+								ptr->num_records++;
+								ptr->file_size += ptr->record_size; //add one record size
+								ptr->tpd_ptr = NULL;
+								printf("%s new size = %d\n", str, ptr->file_size);
+
+								//write updated table file header
+								fwrite(ptr, file_stat.st_size, 1, fhandle);
+
+								//write new row entry
+								token_list *llist = values;
+								while (llist != NULL)
 								{
-									item_len = strlen(llist->tok_string);
-									//hack to get len of item (tok_class)
-									fwrite(&item_len, sizeof(unsigned char), 1, fhandle);
-									fwrite(&llist->tok_string, llist->tok_class, 1, fhandle);
-								}
-								else if (llist->tok_value == INT_LITERAL)
-								{
-									int item = atoi(llist->tok_string);
-									item_len = sizeof(int); //4 bytes for int
-									fwrite(&item_len, sizeof(unsigned char), 1, fhandle);
-									fwrite(&item, item_len, 1, fhandle);
-								}
-								else if (llist->tok_value == K_NULL)
-								{
-									item_len = 0;
-									int counter = llist->tok_class; //hack to get null'ed col_len
-									int item = 0; //zero out column
-									fwrite(&item_len, sizeof(unsigned char), 1, fhandle);
-									while (counter > 0)
+									unsigned char item_len = 0;
+									if (llist->tok_value == STRING_LITERAL)
 									{
-										fwrite(&item, sizeof(unsigned char), 1, fhandle);
-										counter--;
+										item_len = strlen(llist->tok_string);
+										//hack to get len of item (tok_class)
+										fwrite(&item_len, sizeof(unsigned char), 1, fhandle);
+										fwrite(&llist->tok_string, llist->tok_class, 1, fhandle);
 									}
+									else if (llist->tok_value == INT_LITERAL)
+									{
+										int item = atoi(llist->tok_string);
+										item_len = sizeof(int); //4 bytes for int
+										fwrite(&item_len, sizeof(unsigned char), 1, fhandle);
+										fwrite(&item, item_len, 1, fhandle);
+									}
+									else if (llist->tok_value == K_NULL)
+									{
+										item_len = 0;
+										int counter = llist->tok_class; //hack to get null'ed col_len
+										int item = 0; //zero out column
+										fwrite(&item_len, sizeof(unsigned char), 1, fhandle);
+										while (counter > 0)
+										{
+											fwrite(&item, sizeof(unsigned char), 1, fhandle);
+											counter--;
+										}
+									}
+
+									llist = llist->next;
+								}
+								
+								//get current file size
+								fseek(fhandle, 0, SEEK_END);
+								int cur_size = ftell(fhandle);
+
+								//padding rec with zeroes if rec_size was rounded up to 4 byte boundary
+								while (cur_size < ptr->file_size)
+								{
+									int pad = 0;
+									fwrite(&pad, sizeof(unsigned char), 1, fhandle);
+									cur_size++;
 								}
 
-								llist = llist->next;
-							}
-							
-							//get current file size
-							fseek(fhandle, 0, SEEK_END);
-							int cur_size = ftell(fhandle);
-
-							//padding rec with zeroes if rec_size was rounded up to 4 byte boundary
-							while (cur_size < ptr->file_size)
-							{
-								int pad = 0;
-								fwrite(&pad, sizeof(unsigned char), 1, fhandle);
-								cur_size++;
-							}
-
-							fflush(fhandle);
-							fclose(fhandle);
-						}//end file open for write
+								fflush(fhandle);
+								fclose(fhandle);
+							}//end file open for write
+						} // < 100 num_records, can insert
 					}//end check that file size is correct
 				}//end not memory error
 			}//end file open for read
@@ -1819,6 +1829,7 @@ int sem_delete(token_list *t_list)
 	tpd_entry *tab_entry = NULL;
 	struct _stat file_stat;
 	table_file_header *header = NULL;
+	table_file_header *recs = NULL;
 	token_list *values = NULL, *head = NULL; //to hold retrieved token list
 
 	cur = t_list;
@@ -1843,8 +1854,238 @@ int sem_delete(token_list *t_list)
 			cur = cur->next;
 			if(cur->tok_value == K_WHERE)
 			{
-				printf("where clause for delete found\n");
-			}
+				if(cur->next->tok_value != EOC)
+				{
+					cur = cur->next;
+					//get column names and check if cur->string matches
+					cd_entry  *col_entry = NULL;
+					int i, col_id = 0, col_type = 0;
+					bool col_match = false;
+					for (i = 0, col_entry = (cd_entry*)((char*)tab_entry + tab_entry->cd_offset); i < tab_entry->num_columns; i++, col_entry++)
+					{
+						if(strcmp(col_entry->col_name, cur->tok_string) == 0)
+						{
+							col_match = true;
+							col_id = col_entry->col_id; //get column number
+							col_type = col_entry->col_type; //get column type
+						}//end strcmp
+					}//end for
+
+					/*printf("your col name is: '%s'\n", cur->tok_string);
+					printf("col match is (T/F): %d\n",col_match);
+					printf("col id is %d\n", col_id);*/
+
+					if(col_match)
+					{	//continue parsing
+						cur = cur->next;
+						if (cur->tok_value == EOC)
+						{
+							printf("invalid where clause in delete statement.\n  column name must be followed by >, <, or =");
+							rc = INVALID_WHERE_CALUSE_IN_DELETE;
+							cur->tok_value = INVALID;
+						}
+						else if ((cur->tok_value != S_EQUAL) && (cur->tok_value != S_LESS) && (cur->tok_value != S_GREATER))
+						{
+							printf("invalid where clause in delete statement.\n column name must be followed by >, <, or =\n");
+							rc = INVALID_REL_COMP_IN_WHERE_IN_DELETE;
+							cur->tok_value = INVALID;
+						}
+						else
+						{	//if not EOC but is = > <
+							printf("relation operator is %s\n", cur->tok_string);
+							cur = cur->next;
+							if(cur->next->tok_value != EOC)
+							{
+								printf("delete statement currently only supports one where condition\n");
+								rc = INVALID_DELETE_STATEMENT;
+								cur->next->tok_value = INVALID;
+							}
+							else
+							{
+								if((cur->tok_value == INT_LITERAL) && (col_type == T_INT))
+								{
+									printf("int data value found\n");
+									int col_value = atoi(cur->tok_string);
+
+									//read records from file
+									char str[MAX_IDENT_LEN];
+									strcpy(str, tab_entry->table_name);
+									strcat(str, ".tab");
+
+									FILE *fhandle = NULL;
+									if ((fhandle = fopen(str, "rbc")) == NULL)
+									{
+										printf("there was an error opening the file %s\n",str);
+										rc = FILE_OPEN_ERROR;
+									}//end file open error
+									else
+									{
+										_fstat(_fileno(fhandle), &file_stat);
+										recs = (table_file_header*)calloc(1, file_stat.st_size);
+										if (!recs)
+										{
+											printf("there was a memory error...\n");
+											rc = MEMORY_ERROR;
+										}//end memory error
+										else
+										{
+											fread(recs, file_stat.st_size, 1, fhandle);
+											fflush(fhandle);
+											if (recs->file_size != file_stat.st_size)
+											{
+												printf("ptr file_size: %d\n", recs->file_size);
+												printf("read file size and calculated size does not match. db file is corrupted. exiting...\n");
+												rc = DBFILE_CORRUPTION;
+												return rc;
+											}
+											else
+											{
+												int rows_tb_size = recs->file_size - recs->record_offset;
+												int record_size = recs->record_size;
+												int offset = recs->record_offset;
+												int num_records = recs->num_records;
+
+												fseek(fhandle, offset, SEEK_SET);
+												unsigned char *buffer;
+												buffer = (unsigned char*)calloc(1, record_size * num_records);
+
+												unsigned char *temp;
+												temp = (unsigned char*)calloc(1, record_size * num_records);		
+
+												if (!buffer)
+													rc = MEMORY_ERROR;
+												else
+												{
+													fread(buffer, rows_tb_size, 1, fhandle);
+													fseek(fhandle, offset, SEEK_SET);
+
+													int i = 0, rec_cnt = 0, rows = 1, matches = 0;
+													while (i < rows_tb_size)
+													{
+														cd_entry  *col = NULL;
+														int k, row_col = 0;
+														for (k = 0, col = (cd_entry*)((char*)tab_entry + tab_entry->cd_offset);
+															k < tab_entry->num_columns; k++, col++)
+														{	//while there are columns in tpd
+															unsigned char col_len = (unsigned char)buffer[i];
+															if(k == col_id)
+															{	//if it is the selected column
+																if ((int)col_len > 0)
+																{
+																	int b = i + 1;
+																	char *int_b;
+																	int elem;
+																	int_b = (char*)calloc(1, sizeof(int));
+																	for (int a = 0; a < sizeof(int); a++)
+																	{
+																		int_b[a] = buffer[b + a];
+																	}
+																	memcpy(&elem, int_b, sizeof(int));
+																	if(elem != col_value)
+																	{
+																		printf("|row #%d| %11d|\n",rows, elem);
+																		fread(temp, record_size+1, 1, fhandle);
+																		//something wrong with fread
+																	}
+																	else
+																	{	//match found
+																		printf("|row #%d| %11d|matches\n",rows, elem);
+																		matches++;
+																	}
+																}
+																else if((int)col_len == 0)
+																{
+																	int b = i + 1;
+																	char *null_b;
+																	int len = 11;
+																	null_b = (char*)calloc(1, len);
+																	strcat(null_b, "-");
+																	int str_len = strlen(null_b);
+																	int width = (str_len > len) ? str_len : len;
+
+																	printf("|row #%d| ", rows);
+																	while (str_len < width)
+																	{
+																		printf(" ");
+																		str_len++;
+																	}
+																	printf("%s|is null\n", null_b);
+																	fread(temp, record_size+1, 1, fhandle);
+																}
+															}
+															
+															i += col->col_len+1; //move to next item/column
+														}
+														rows++;
+														rec_cnt += record_size; //jump to next record
+														i = rec_cnt;
+													}//end while
+													if(matches == 0)
+													{
+														printf("error: no row with matching data value in that column to be deleted\n");
+														rc = NO_ROWS_TO_DELETE;
+														cur->tok_value = INVALID;
+													}
+													else
+													{
+														printf("number to delete %d, and number to rewrite %d\n", matches,num_records-matches);
+														
+														int n = record_size * matches;
+														printf("size of record_size is %d and n is : %d\n",record_size,n);
+														//fwrite(newbuff, record_size*matches, 1, fhandle);
+														for(int k = 0; k < n; k++)
+														{
+															printf("%u",(unsigned char*)temp[k]);
+														}
+
+														if ((fhandle = fopen(str, "wbc")) == NULL)
+														{
+															printf("there was an error opening the file %s\n",str);
+															rc = FILE_OPEN_ERROR;
+														}
+														else
+														{
+															recs->num_records = matches;
+															recs->file_size = matches * record_size + sizeof(table_file_header);
+															fwrite(recs, sizeof(table_file_header), 1, fhandle);
+															fwrite(temp, n, 1, fhandle);
+														}
+														
+															
+													}//there are matches
+												}//not memory error
+											}
+										}
+
+									}//file open ok
+								}//int data value
+								else if ((cur->tok_value == STRING_LITERAL) && (col_type == T_CHAR))
+								{
+									printf("char data value found\n");
+								}//char data value
+								else
+								{
+									printf("data value in where clause does not match type of column\n");
+									rc = WHERE_VAL_COLTYPE_MISMATCH_IN_DELETE;
+									cur->tok_value = INVALID;
+								}//coltype and val type mismatch
+							}//only one where condition, nothing else after it
+						}//relational operator found
+					}
+					else
+					{
+						printf("no matching column in table to select for deletion\n");
+						rc = INVALID_COLUMN_NAME;
+						cur->tok_value = INVALID;
+					}
+				}//tokens after where found
+				else
+				{
+					printf("improper use of the keyword 'where'. a clause must follow\n");
+					rc = INVALID_WHERE_CALUSE_IN_DELETE;
+					cur->tok_value = INVALID;
+				}
+			}//where keyword found
 			else if(cur->tok_value == EOC)
 			{
 				char str[MAX_IDENT_LEN + 1];
@@ -1895,7 +2136,7 @@ int sem_delete(token_list *t_list)
 				printf("invalid delete statement\n");
 				rc = INVALID_DELETE_STATEMENT;
 				cur->tok_value = INVALID;
-			}
+			}//invalid delete stmt
 		}//end else for table exists
 	}//end else for identifier found
 

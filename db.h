@@ -174,27 +174,32 @@ typedef enum error_return_codes
 	INVALID_COLUMN_DEFINITION,	// -390
 	INVALID_COLUMN_LENGTH,		// -389
 	INVALID_REPORT_FILE_NAME,	// -388
+
 	/* errors for insert */
-	INVALID_INSERT_STATEMENT,		// -387
-	INSERT_VALUE_TYPE_MISMATCH,		// -386
-	INSERT_CHAR_LENGTH_MISMATCH,	// -385
-	INSERT_VAL_COL_LEN_MISMATCH,	// -384
-	INSERT_NULL_FAILURE,			// -383
-	INSERT_INT_SIZE_FAILURE,		// -382
-	MAX_NUM_RECORDS,				// -381
+	INVALID_INSERT_STATEMENT = -380,	// -380
+	INSERT_VALUE_TYPE_MISMATCH,			// -379
+	INSERT_CHAR_LENGTH_MISMATCH,		// -378
+	INSERT_VAL_COL_LEN_MISMATCH,		// -377
+	INSERT_NULL_FAILURE,				// -376
+	INSERT_INT_SIZE_FAILURE,			// -375
+	MAX_NUM_RECORDS,					// -374
+	INSERT_INVALID_TYPE,				// -373
+	
 	/* errors for delete */
-	INVALID_DELETE_STATEMENT,		// -380
-	INVALID_WHERE_CALUSE_IN_DELETE,	// -379
-	INVALID_REL_COMP_IN_WHERE_IN_DELETE,	//-378
-	WHERE_VAL_COLTYPE_MISMATCH_IN_DELETE, 	//-377
-	NO_ROWS_TO_DELETE,				// -376
+	INVALID_DELETE_STATEMENT = -365,	// -365
+	INVALID_WHERE_CALUSE_IN_DELETE,		// -364
+	INVALID_REL_COMP_IN_WHERE_IN_DELETE,	//-363
+	WHERE_VAL_COLTYPE_MISMATCH_IN_DELETE, 	//-362
+	NO_ROWS_TO_DELETE,						// -361
+	
 	/* errors for update */
-	INVALID_UPDATE_STATEMENT = -365, // -365
+	INVALID_UPDATE_STATEMENT = -350, 		// -350
 
 	/* errors for select */
-	INVALID_SELECT_STATEMENT = -350,   	// -350
-	INVALID_WHERE_CLAUSE_IN_SELECT,		// -349
-	INVALID_ORDER_BY_CLAUSE_IN_SELECT,	// -348
+	INVALID_SELECT_STATEMENT = -335,   	// -335
+	INVALID_WHERE_CLAUSE_IN_SELECT,		// -334
+	INVALID_ORDER_BY_CLAUSE_IN_SELECT,	// -332
+	
 	/* other errors */
 	FILE_OPEN_ERROR = -299,		// -299
 	DBFILE_CORRUPTION,			// -298
@@ -215,6 +220,10 @@ int sem_delete(token_list *t_list);
 int sem_update(token_list *t_list);
 //table_file_header* getTable(char table_name[]);
 
+/* helper functions */
+token_list* insertHelper(int t_class, int t_value, char* t_string);
+char* getOuter(tpd_entry *tab_entry);
+char* getColHeaders(tpd_entry *tab_entry);
 
 /*
 	Keep a global list of tpd - in real life, this will be stored

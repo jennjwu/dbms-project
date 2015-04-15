@@ -830,7 +830,7 @@ int sem_create_table(token_list *t_list)
 														if (!rc)
 														{
 															/* I must have either a comma or right paren */
-															if ((cur->tok_value != S_RIGHT_PAREN) &&															  (cur->tok_value != S_COMMA))
+															if ((cur->tok_value != S_RIGHT_PAREN) && (cur->tok_value != S_COMMA))
 															{
 																printf("invalid column definition. check for missing , or ).\n");
 																rc = INVALID_COLUMN_DEFINITION;
@@ -1223,22 +1223,18 @@ int sem_insert(token_list *t_list)
 				for (i = 0, col_entry = (cd_entry*)((char*)exist_entry + exist_entry->cd_offset);
 					i < exist_entry->num_columns; i++, col_entry++)
 				{	//while there are columns in tpd
-					
-					if (cur->tok_value == S_COMMA)
-						cur = cur->next;
-
+					//else, if token list is not shorter than number of columns, continue parsing
 					if (cur->tok_value == S_RIGHT_PAREN)
-					{	//Error
+					{
 						printf("number of columns and insert values don't match\n");
 						rc = INSERT_VAL_COL_LEN_MISMATCH;
 						cur->tok_value = INVALID;
 						return rc;
 					}
-					else
-					{	//else, if token list is not shorter than number of columns, continue parsing
+					else if ( (cur->tok_value == INT_LITERAL) || (cur->tok_value == STRING_LITERAL) || (cur->tok_value == K_NULL))
+					{
 						if ((cur->tok_value == INT_LITERAL) && (col_entry->col_type == T_INT))
 						{	//for int literal
-
 							//check that int literal is not greater than max int
 							if (strlen(cur->tok_string) > 10)
 							{
@@ -1257,11 +1253,7 @@ int sem_insert(token_list *t_list)
 							else
 							{
 								//temporary token holder
-								token_list *temp = (token_list *)calloc(1, sizeof(token_list));
-								temp->tok_class = cur->tok_class;
-								temp->tok_value = cur->tok_value;
-								strcpy(temp->tok_string, cur->tok_string);
-								temp->next = NULL;
+								token_list *temp = insertHelper(cur->tok_class, cur->tok_value, cur->tok_string);
 
 								//set values linked list
 								if (values == NULL)
@@ -1274,7 +1266,6 @@ int sem_insert(token_list *t_list)
 									head->next = temp;
 									head = temp;
 								}
-								cur = cur->next;
 							}
 						}//end int literal
 						else if ((cur->tok_value == STRING_LITERAL) && (col_entry->col_type == T_CHAR))
@@ -1284,13 +1275,9 @@ int sem_insert(token_list *t_list)
 							if (str_size <= col_entry->col_len)
 							{
 								//temporary token holder
-								token_list *temp = (token_list *)calloc(1, sizeof(token_list));
-								//temp->tok_class = cur->tok_class; 
-								temp->tok_class = col_entry->col_len; //hack to keep col max len
-								temp->tok_value = cur->tok_value;
-								strcpy(temp->tok_string, cur->tok_string);
-								temp->next = NULL;
-								
+								//**1st parm = col_len
+								token_list *temp = insertHelper(col_entry->col_len, cur->tok_value, cur->tok_string);
+
 								//set values linked list
 								if (values == NULL)
 								{
@@ -1302,10 +1289,6 @@ int sem_insert(token_list *t_list)
 									head->next = temp;
 									head = temp;
 								}
-
-								//continue to next token
-								cur = cur->next;
-								
 							}
 							else
 							{	//str size too long
@@ -1329,13 +1312,8 @@ int sem_insert(token_list *t_list)
 							{	//nullable
 
 								//temporary token holder
-								token_list *temp = (token_list *)calloc(1, sizeof(token_list));
-								//temp->tok_class = cur->tok_class; //1 for keyword
-								//hack: set tok_class to hold column_len
-								temp->tok_class = col_entry->col_len;
-								temp->tok_value = cur->tok_value; //15 for null keyword
-								strcpy(temp->tok_string, cur->tok_string);
-								temp->next = NULL;
+								//**1st parm = col_len
+								token_list *temp = insertHelper(col_entry->col_len, cur->tok_value, cur->tok_string);
 
 								//set values linked list
 								if (values == NULL)
@@ -1348,9 +1326,6 @@ int sem_insert(token_list *t_list)
 									head->next = temp;
 									head = temp;
 								}
-								
-								//continue to next token
-								cur = cur->next;
 							}
 						}//end null
 						else
@@ -1360,18 +1335,28 @@ int sem_insert(token_list *t_list)
 							cur->tok_value = INVALID;
 							return rc;
 						}
-					}//if not EOC
+						cur = cur->next;
+					}
+					else
+					{
+						printf("invalid column value. only char(n) and int are supported.\n");
+						rc = INSERT_INVALID_TYPE;
+						cur->tok_value = INVALID;
+						return rc;
+					}
+
+					//parse for comma
+					if (cur->tok_value == S_COMMA)
+						cur = cur->next; //continue
 				}//end for
 
-				if (cur->tok_value == S_RIGHT_PAREN)
-				{
-					//got R parentheses
+				if (cur->tok_value == S_RIGHT_PAREN) //got R parentheses
 					cur = cur->next;
-				}
 				else 
 				{
 					printf("missing ) for insert statement\n");
 					rc = INVALID_INSERT_STATEMENT;
+					cur->tok_value = INVALID;
 					return rc;
 				}
 			}//end else col/val comparison
@@ -1477,9 +1462,8 @@ int sem_insert(token_list *t_list)
 											counter--;
 										}
 									}
-
 									llist = llist->next;
-								}
+								}//end while
 								
 								//get current file size
 								fseek(fhandle, 0, SEEK_END);
@@ -1559,201 +1543,8 @@ int sem_select(token_list *t_list)
 				{
 					cur = cur->next; //look for clause after table name
 					if (cur->tok_value == EOC)
-					{
-						//do select * from table
-						/* read from <table_name>.tab file*/
-						char str[MAX_IDENT_LEN];
-						strcpy(str, tab_entry->table_name); //get table name
-						strcat(str, ".tab");
-
-						//get column headers
-						char format[MAX_PRINT_LEN], head[MAX_PRINT_LEN];
-						strcpy(format, "+");
-						strcpy(head, "|");
-
-						cd_entry  *col_entry = NULL;
-						int i;
-						for (i = 0, col_entry = (cd_entry*)((char*)tab_entry + tab_entry->cd_offset);
-							i < tab_entry->num_columns; i++, col_entry++)
-						{	//while there are columns in tpd
-								
-							//test if col_len is longer or col_name is longer - use whichever is longer
-							int width = (col_entry->col_len > strlen(col_entry->col_name)) ? 
-												col_entry->col_len : strlen(col_entry->col_name);
-							if (col_entry->col_type == T_INT)
-								width = 11; //int columns should have width 11
-							for (int j = 0; j < width; j++)
-								strcat(format, "-");
-							strcat(format, "+");
-
-							int diff = width - strlen(col_entry->col_name);
-							strcat(head, col_entry->col_name);
-							if (diff > 0)
-							{
-								for (int k = 0; k < diff; k++)
-									strcat(head, " ");
-							}
-							strcat(head, "|");
-						}
-
-						printf("%s\n", format);
-						printf("%s\n", head);
-						printf("%s\n", format);
-
-						FILE *fhandle = NULL;
-						if ((fhandle = fopen(str, "rbc")) == NULL)
-						{
-							printf("there was an error opening the file %s\n",str);
-							rc = FILE_OPEN_ERROR;
-						}//end file open error
-						else
-						{
-							_fstat(_fileno(fhandle), &file_stat);
-							recs = (table_file_header*)calloc(1, file_stat.st_size);
-
-							if (!recs)
-							{
-								printf("there was a memory error...\n");
-								rc = MEMORY_ERROR;
-							}//end memory error
-							else
-							{
-								fread(recs, file_stat.st_size, 1, fhandle);
-								fflush(fhandle);
-								
-								if (recs->file_size != file_stat.st_size)
-								{
-									printf("ptr file_size: %d\n", recs->file_size);
-									printf("read file size and calculated size does not match. db file is corrupted. exiting...\n");
-									rc = DBFILE_CORRUPTION;
-									return rc;
-								}
-								else
-								{
-									int rows_tb_size = recs->file_size - recs->record_offset;
-									int record_size = recs->record_size;
-									int offset = recs->record_offset;
-									int num_records = recs->num_records;
-
-									fseek(fhandle, offset, SEEK_SET);
-									unsigned char *buffer;
-									buffer = (unsigned char*)calloc(1, record_size * 100);
-									if (!buffer)
-										rc = MEMORY_ERROR;
-									else
-									{
-										fread(buffer, rows_tb_size, 1, fhandle);
-										int i = 0, rec_cnt = 0, rows = 1;
-										while (i < rows_tb_size)
-										{
-											printf("|");
-											cd_entry  *col = NULL;
-											int k, row_col = 0;
-											for (k = 0, col = (cd_entry*)((char*)tab_entry + tab_entry->cd_offset);
-												k < tab_entry->num_columns; k++, col++)
-											{	//while there are columns in tpd
-												
-												unsigned char col_len = (unsigned char)buffer[i];
-
-												if ((int)col_len > 0)
-												{
-													if (col->col_type == T_INT)
-													{	//for integer data
-														int b = i + 1;
-														char *int_b;
-														int elem;
-														int_b = (char*)calloc(1, sizeof(int));
-														for (int a = 0; a < sizeof(int); a++)
-														{
-															int_b[a] = buffer[b + a];
-														}
-														memcpy(&elem, int_b, sizeof(int));
-														printf("%11d|", elem);
-
-													}
-													else if (col->col_type == T_CHAR)
-													{	//for char data
-														int b = i + 1;
-														char *str_b;
-														int len = col->col_len + 1;
-														str_b = (char*)calloc(1, len);
-														for (int a = 0; a < len; a++)
-														{
-															str_b[a] = buffer[b + a];
-														}
-														str_b[len - 1] = '\0';
-														printf("%s", str_b);
-														int str_len = strlen(str_b);
-														int width = (col->col_len > strlen(col->col_name)) ?
-															col->col_len : strlen(col->col_name);
-														while (str_len < width)
-														{
-															printf(" ");
-															str_len++;
-														}
-														printf("|");
-													}
-												}
-												else
-												{	//for null
-													if ((int)col_len == 0)
-													{
-														int b = i + 1;
-														char *null_b;
-														int len = 0;
-														if (col->col_type == T_INT)
-															len = 11;
-														else if (col->col_type == T_CHAR)
-														{
-															len = (col->col_len > strlen(col->col_name)) ?
-																col->col_len : strlen(col->col_name);
-														}
-
-														null_b = (char*)calloc(1, len);
-														strcat(null_b, "-");
-														int str_len = strlen(null_b);
-														int width = (str_len > len) ? str_len : len;
-
-														//print to L or R depending on col type
-														if (col->col_type == T_INT)
-														{
-															while (str_len < width)
-															{
-																printf(" ");
-																str_len++;
-															}
-															printf("%s|", null_b);
-
-														}
-														else if (col->col_type == T_CHAR)
-														{
-															printf("%s", null_b);
-															while (str_len < width)
-															{
-																printf(" ");
-																str_len++;
-															}
-															printf("|");
-														}
-
-													}//if column is null
-													else
-														rc = DBFILE_CORRUPTION; //if byte is anything else
-												}
-												i += col->col_len+1; //move to next item/column
-											}
-											printf("\n");
-											rec_cnt += record_size; //jump to next record
-											i = rec_cnt;
-										}//end while
-										if (num_records > 0)
-											printf("%s\n", format); //print last line
-										printf("%d rows selected.\n", num_records);
-									}//end not memory error
-								}//file is not corrupt
-								fclose(fhandle);
-							}//end not memory error
-						}//not file open error
+					{ 	
+						//do nothing - select * from table parsed ok
 					}
 					else if (cur->tok_value == K_WHERE)
 					{
@@ -1817,7 +1608,180 @@ int sem_select(token_list *t_list)
 			rc = INVALID_SELECT_STATEMENT;
 			cur->tok_value = INVALID;
 		}
-	}
+	}// *, column names (identifier), or aggregate func
+
+	if(!rc)
+	{	//continue with selection process
+		/* read from <table_name>.tab file*/
+		char str[MAX_IDENT_LEN];
+		strcpy(str, tab_entry->table_name); //get table name
+		strcat(str, ".tab");
+
+		//get column headers
+		char *format, *head;
+		format = getOuter(tab_entry);
+		head = getColHeaders(tab_entry);
+
+		//print formatting
+		printf("%s\n", format);
+		printf("%s\n", head);
+		printf("%s\n", format);
+
+		FILE *fhandle = NULL;
+		if ((fhandle = fopen(str, "rbc")) == NULL)
+		{
+			printf("there was an error opening the file %s\n",str);
+			rc = FILE_OPEN_ERROR;
+		}//end file open error
+		else
+		{
+			_fstat(_fileno(fhandle), &file_stat);
+			recs = (table_file_header*)calloc(1, file_stat.st_size);
+
+			if (!recs)
+			{
+				printf("there was a memory error...\n");
+				rc = MEMORY_ERROR;
+			}//end memory error
+			else
+			{
+				fread(recs, file_stat.st_size, 1, fhandle);
+				fflush(fhandle);
+				
+				if (recs->file_size != file_stat.st_size)
+				{
+					printf("ptr file_size: %d\n", recs->file_size);
+					printf("read file size and calculated size does not match. db file is corrupted. exiting...\n");
+					rc = DBFILE_CORRUPTION;
+					return rc;
+				}
+				else
+				{
+					int rows_tb_size = recs->file_size - recs->record_offset;
+					int record_size = recs->record_size;
+					int offset = recs->record_offset;
+					int num_records = recs->num_records;
+
+					fseek(fhandle, offset, SEEK_SET);
+					unsigned char *buffer;
+					buffer = (unsigned char*)calloc(1, record_size * 100);
+					if (!buffer)
+						rc = MEMORY_ERROR;
+					else
+					{
+						fread(buffer, rows_tb_size, 1, fhandle);
+						int i = 0, rec_cnt = 0, rows = 1;
+						while (i < rows_tb_size)
+						{
+							printf("|");
+							cd_entry  *col = NULL;
+							int k, row_col = 0;
+							for (k = 0, col = (cd_entry*)((char*)tab_entry + tab_entry->cd_offset);
+								k < tab_entry->num_columns; k++, col++)
+							{	//while there are columns in tpd
+								
+								unsigned char col_len = (unsigned char)buffer[i];
+
+								if ((int)col_len > 0)
+								{
+									if (col->col_type == T_INT)
+									{	//for integer data
+										int b = i + 1;
+										char *int_b;
+										int elem;
+										int_b = (char*)calloc(1, sizeof(int));
+										for (int a = 0; a < sizeof(int); a++)
+										{
+											int_b[a] = buffer[b + a];
+										}
+										memcpy(&elem, int_b, sizeof(int));
+										printf("%11d|", elem);
+
+									}
+									else if (col->col_type == T_CHAR)
+									{	//for char data
+										int b = i + 1;
+										char *str_b;
+										int len = col->col_len + 1;
+										str_b = (char*)calloc(1, len);
+										for (int a = 0; a < len; a++)
+										{
+											str_b[a] = buffer[b + a];
+										}
+										str_b[len - 1] = '\0';
+										printf("%s", str_b);
+										int str_len = strlen(str_b);
+										int width = (col->col_len > strlen(col->col_name)) ?
+											col->col_len : strlen(col->col_name);
+										while (str_len < width)
+										{
+											printf(" ");
+											str_len++;
+										}
+										printf("|");
+									}
+								}
+								else
+								{	//for null
+									if ((int)col_len == 0)
+									{
+										int b = i + 1;
+										char *null_b;
+										int len = 0;
+										if (col->col_type == T_INT)
+											len = 11;
+										else if (col->col_type == T_CHAR)
+										{
+											len = (col->col_len > strlen(col->col_name)) ?
+												col->col_len : strlen(col->col_name);
+										}
+
+										null_b = (char*)calloc(1, len);
+										strcat(null_b, "-");
+										int str_len = strlen(null_b);
+										int width = (str_len > len) ? str_len : len;
+
+										//print to L or R depending on col type
+										if (col->col_type == T_INT)
+										{
+											while (str_len < width)
+											{
+												printf(" ");
+												str_len++;
+											}
+											printf("%s|", null_b);
+
+										}
+										else if (col->col_type == T_CHAR)
+										{
+											printf("%s", null_b);
+											while (str_len < width)
+											{
+												printf(" ");
+												str_len++;
+											}
+											printf("|");
+										}
+
+									}//if column is null
+									else
+										rc = DBFILE_CORRUPTION; //if byte is anything else
+								}
+								i += col->col_len+1; //move to next item/column
+							}
+							printf("\n");
+							rec_cnt += record_size; //jump to next record
+							i = rec_cnt;
+						}//end while
+						if (num_records > 0)
+							printf("%s\n", format); //print last line
+						printf("%d rows selected.\n", num_records);
+					}//end not memory error
+				}//file is not corrupt
+				fclose(fhandle);
+			}//end not memory error
+		}//not file open error
+	}//end selection process
 	
 	return rc;
 }
@@ -1857,9 +1821,10 @@ int sem_delete(token_list *t_list)
 				if(cur->next->tok_value != EOC)
 				{
 					cur = cur->next;
+
 					//get column names and check if cur->string matches
 					cd_entry  *col_entry = NULL;
-					int i, col_id = 0, col_type = 0;
+					int i, col_id = 0, col_type = 0, col_offset = 0, col_length = 0;
 					bool col_match = false;
 					for (i = 0, col_entry = (cd_entry*)((char*)tab_entry + tab_entry->cd_offset); i < tab_entry->num_columns; i++, col_entry++)
 					{
@@ -1868,12 +1833,14 @@ int sem_delete(token_list *t_list)
 							col_match = true;
 							col_id = col_entry->col_id; //get column number
 							col_type = col_entry->col_type; //get column type
+							col_length = col_entry->col_len; //get column length (to know how many bytes to read)
+							break;
 						}//end strcmp
+						else
+						{
+							col_offset += col_entry->col_len + 1; //plus one for len byte
+						}
 					}//end for
-
-					/*printf("your col name is: '%s'\n", cur->tok_string);
-					printf("col match is (T/F): %d\n",col_match);
-					printf("col id is %d\n", col_id);*/
 
 					if(col_match)
 					{	//continue parsing
@@ -1902,7 +1869,7 @@ int sem_delete(token_list *t_list)
 							}
 							else
 							{
-								if((cur->tok_value == INT_LITERAL) && (col_type == T_INT))
+								/*if((cur->tok_value == INT_LITERAL) && (col_type == T_INT))
 								{
 									printf("int data value found\n");
 									int col_value = atoi(cur->tok_string);
@@ -2074,7 +2041,72 @@ int sem_delete(token_list *t_list)
 								else if ((cur->tok_value == STRING_LITERAL) && (col_type == T_CHAR))
 								{
 									printf("char data value found\n");
-								}//char data value
+								}//char data value*/
+								if( ((cur->tok_value == INT_LITERAL) && (col_type == T_INT)) || 
+									((cur->tok_value == STRING_LITERAL) && (col_type == T_CHAR)) )
+								{
+
+
+									//use replacement strategy -> 
+									//store records in memory, check for condition, then take bottom and copy it to the deleted entry spot
+
+									printf("column matches for delete\n");
+
+									//read records from file
+									char str[MAX_IDENT_LEN];
+									strcpy(str, tab_entry->table_name);
+									strcat(str, ".tab");
+
+									FILE *fhandle = NULL;
+									if ((fhandle = fopen(str, "rbc")) == NULL)
+									{
+										printf("there was an error opening the file %s\n",str);
+										rc = FILE_OPEN_ERROR;
+									}//end file open error
+									else
+									{
+										_fstat(_fileno(fhandle), &file_stat);
+										header = (table_file_header*)calloc(1, sizeof(table_file_header));
+										if (!header)
+										{
+											printf("there was a memory error...\n");
+											rc = MEMORY_ERROR;
+										}//end memory error
+										else
+										{
+											fread(header, sizeof(table_file_header), 1, fhandle);
+											if (header->file_size != file_stat.st_size)
+											{
+												printf("ptr file_size: %d\n", recs->file_size);
+												printf("read file size and calculated size does not match. db file is corrupted. exiting...\n");
+												rc = DBFILE_CORRUPTION;
+												return rc;
+											}
+											else
+											{
+												int num_recs = header->num_records;
+												int rec_size = header->record_size;
+												recs = (table_file_header*)calloc(1, num_recs*rec_size);
+												fread(recs, num_recs*rec_size, 1, fhandle);
+
+												printf("num_records is %d and rec_size is %d\n", num_recs, rec_size);
+												printf("total size read for records: %d\n", num_recs*rec_size);
+												printf("col_id is %d and col_offset is %d and col_len is %d\n", col_id, col_offset, col_length);
+
+												for (int r = 0; r < num_recs; r++)
+												{
+													for(int c = col_offset+1; c < col_length; c++)
+														printf("%c", recs[c*r]);
+													printf("\n");
+												}
+
+
+
+											}//end not dbfile corruption
+											fflush(fhandle);
+										}//end not memory error
+									}//end open file
+								}
 								else
 								{
 									printf("data value in where clause does not match type of column\n");
@@ -2235,3 +2267,68 @@ int sem_update(token_list *t_list)
 
 	return table_content;
 }*/
+
+//temporary token holder
+token_list * insertHelper(int tok_class, int tok_value, char* tok_string)
+{
+	token_list *temp = (token_list *)calloc(1, sizeof(token_list));
+	temp->tok_class = tok_class;
+	temp->tok_value = tok_value;	
+	strcpy(temp->tok_string, tok_string);
+	temp->next = NULL;
+
+	return temp;
+}
+
+char* getOuter(tpd_entry *tab_entry)
+{
+	char *format = (char*)calloc(1, MAX_PRINT_LEN);
+	strcpy(format,"+");
+
+	cd_entry  *col_entry = NULL;
+	int i;
+	for (i = 0, col_entry = (cd_entry*)((char*)tab_entry + tab_entry->cd_offset);
+		i < tab_entry->num_columns; i++, col_entry++)
+	{	//while there are columns in tpd
+			
+		//test if col_len is longer or col_name is longer - use whichever is longer
+		int width = (col_entry->col_len > strlen(col_entry->col_name)) ? 
+							col_entry->col_len : strlen(col_entry->col_name);
+		if (col_entry->col_type == T_INT)
+			width = 11; //int columns should have width 11
+		for (int j = 0; j < width; j++)
+			strcat(format, "-");
+		strcat(format, "+");
+	}
+
+	return format;
+}
+
+char* getColHeaders(tpd_entry *tab_entry)
+{
+	char *head = (char*)calloc(1, MAX_PRINT_LEN);
+	strcpy(head, "|");
+	cd_entry  *col_entry = NULL;
+	int i;
+	for (i = 0, col_entry = (cd_entry*)((char*)tab_entry + tab_entry->cd_offset);
+		i < tab_entry->num_columns; i++, col_entry++)
+	{	//while there are columns in tpd
+			
+		//test if col_len is longer or col_name is longer - use whichever is longer
+		int width = (col_entry->col_len > strlen(col_entry->col_name)) ? 
+							col_entry->col_len : strlen(col_entry->col_name);
+		if (col_entry->col_type == T_INT)
+			width = 11; //int columns should have width 11
+
+		int diff = width - strlen(col_entry->col_name);
+		strcat(head, col_entry->col_name);
+		if (diff > 0)
+		{
+			for (int k = 0; k < diff; k++)
+				strcat(head, " ");
+		}
+		strcat(head, "|");
+	}
+
+	return head;
+}

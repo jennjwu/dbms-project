@@ -2212,20 +2212,63 @@ int sem_update(token_list *t_list)
 			printf("cannot update nonexistent table\n");
 			rc = TABLE_NOT_EXIST;
 			cur->tok_value = INVALID;
-		}
+		}//table does not exist
 		else
 		{
 			cur = cur->next;
 			if(cur->tok_value == K_SET)
 			{
-				printf("need to get column name for table %s\n", tab_entry->table_name);
+				cur = cur->next; //move to column name
+				if(cur->tok_value != EOC)
+				{
+					int column_num = columnFinder(tab_entry, cur->tok_string);
+					if(column_num > -1)
+					{
+						printf("column found at index: %d\n", column_num);
+						cur = cur->next;
+						if(cur->tok_value != S_EQUAL)
+						{
+							printf("invalid update statement. must set a column = to a value\n");
+							rc = INVALID_REL_OP_IN_UPDATE;
+							cur->tok_value = INVALID;
+						}
+						else
+						{
+							cur = cur->next;
+							printf("get value to update\n");
+							if((cur->tok_value != INT_LITERAL) && (cur->tok_value != STRING_LITERAL) &&(cur->tok_value != K_NULL))
+							{
+								printf("invalid update value. only string literals, int literals, and 'null' are supported.\n");
+								rc = INVALID_UPDATE_TYPE;
+								cur->tok_value = INVALID;
+							}
+							else 
+							{
+								printf("match value with column type\n");
+								// call checkcoltype here
+							}
+						}//equal sign found
+					}
+					else
+					{
+						printf("no matching column to update\n");
+						rc = NO_MATCHING_COL_TO_UPDATE;
+						cur->tok_value = INVALID;
+					}
+				}
+				else
+				{
+					printf("invalid update statement. missing column to set\n");
+					rc = INVALID_UPDATE_STATEMENT;
+					cur->tok_value = INVALID;
+				}//missing column name
 			}
 			else 
 			{
 				printf("invalid update statement. missing set clause\n");
 				rc = INVALID_UPDATE_STATEMENT;
 				cur->tok_value = INVALID;
-			}
+			}//missing set keyword
 		}//end else for table exists
 	}
 
@@ -2331,4 +2374,25 @@ char* getColHeaders(tpd_entry *tab_entry)
 	}
 
 	return head;
+}
+
+int columnFinder(tpd_entry *tab_entry, char *tok_string)
+{
+	//get column names and check if cur->string matches
+	cd_entry  *col_entry = NULL;
+	int i, col_id = 0, col_type = 0, col_offset = 0, col_length = 0;
+	for (i = 0, col_entry = (cd_entry*)((char*)tab_entry + tab_entry->cd_offset); i < tab_entry->num_columns; i++, col_entry++)
+	{
+		if(strcmp(col_entry->col_name, tok_string) == 0)
+			return col_entry->col_id;
+		else //move to next column
+			col_offset += col_entry->col_len + 1; //plus one for len byte
+	}//end for
+
+	return -1;
+}
+
+int checkColType(tpd_entry *tab_entry, int t_type)
+{
+	return 0;
 }

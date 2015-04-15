@@ -194,6 +194,9 @@ typedef enum error_return_codes
 	
 	/* errors for update */
 	INVALID_UPDATE_STATEMENT = -350, 		// -350
+	NO_MATCHING_COL_TO_UPDATE,				// -349
+	INVALID_REL_OP_IN_UPDATE,				// -348
+	INVALID_UPDATE_TYPE,					// -347
 
 	/* errors for select */
 	INVALID_SELECT_STATEMENT = -335,   	// -335
@@ -224,6 +227,8 @@ int sem_update(token_list *t_list);
 token_list* insertHelper(int t_class, int t_value, char* t_string);
 char* getOuter(tpd_entry *tab_entry);
 char* getColHeaders(tpd_entry *tab_entry);
+int columnFinder(tpd_entry *tab_entry, char *tok_string);
+int checkColType(tpd_entry *tab_entry, int t_type);
 
 /*
 	Keep a global list of tpd - in real life, this will be stored

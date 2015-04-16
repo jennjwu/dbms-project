@@ -222,7 +222,7 @@ int get_token(char* command, token_list** tok_list)
 			}
 		}//end symbol catch
 		else if (*cur == '\'')
-		{	/* Find STRING_LITERRAL */
+		{	/* Find STRING_LITERAL */
 			int t_class;
 			cur++;
 			
@@ -1234,16 +1234,9 @@ int sem_insert(token_list *t_list)
 					else if ( (cur->tok_value == INT_LITERAL) || (cur->tok_value == STRING_LITERAL) || (cur->tok_value == K_NULL))
 					{
 						if ((cur->tok_value == INT_LITERAL) && (col_entry->col_type == T_INT))
-						{	//for int literal
+						{
 							//check that int literal is not greater than max int
-							if (strlen(cur->tok_string) > 10)
-							{
-								printf("integer value error\n");
-								rc = INSERT_INT_SIZE_FAILURE;
-								cur->tok_value = INVALID;
-								return rc;
-							}
-							else if ((strlen(cur->tok_string) == 10) && (strcmp(cur->tok_string, "2147483647") > 0))
+							if(!checkIntSize(cur->tok_string))
 							{
 								printf("integer value error\n");
 								rc = INSERT_INT_SIZE_FAILURE;
@@ -1300,7 +1293,6 @@ int sem_insert(token_list *t_list)
 						}//end string literal
 						else if (cur->tok_value == K_NULL)
 						{	//Check for not null constraint
-							
 							if (col_entry->not_null)
 							{
 								printf("not null constraint\n");
@@ -1308,9 +1300,8 @@ int sem_insert(token_list *t_list)
 								cur->tok_value = INVALID;
 								return rc;
 							}
-							else
-							{	//nullable
-
+							else //nullable
+							{	
 								//temporary token holder
 								//**1st parm = col_len
 								token_list *temp = insertHelper(col_entry->col_len, cur->tok_value, cur->tok_string);
@@ -2195,6 +2186,9 @@ int sem_update(token_list *t_list)
 	struct _stat file_stat;
 	table_file_header *recs = NULL;
 	token_list *values = NULL, *head = NULL; //to hold retrieved token list
+	int rel_op; //holds value of relational operator in where statement of update
+	int where_col_no; //holds col # of col in where clause of update
+	bool has_where = false;
 
 	cur = t_list;
 	if ((cur->tok_class != keyword) && (cur->tok_class != identifier) &&
@@ -2203,15 +2197,16 @@ int sem_update(token_list *t_list)
 		printf("invalid update statement\n");
 		rc = INVALID_UPDATE_STATEMENT;
 		cur->tok_value = INVALID;
+		return rc;
 	}
 	else
-	{
-		//identifier found - check that table exists
+	{	//identifier found - check that table exists
 		if ((tab_entry = get_tpd_from_list(cur->tok_string)) == NULL)
 		{
 			printf("cannot update nonexistent table\n");
 			rc = TABLE_NOT_EXIST;
 			cur->tok_value = INVALID;
+			return rc;
 		}//table does not exist
 		else
 		{
@@ -2224,7 +2219,6 @@ int sem_update(token_list *t_list)
 					int column_num = columnFinder(tab_entry, cur->tok_string);
 					if(column_num > -1)
 					{
-						printf("column found at index: %d\n", column_num);
 						cur = cur->next;
 						if(cur->tok_value != S_EQUAL)
 						{
@@ -2235,32 +2229,147 @@ int sem_update(token_list *t_list)
 						else
 						{
 							cur = cur->next;
-							printf("get value to update\n");
-							if((cur->tok_value != INT_LITERAL) && (cur->tok_value != STRING_LITERAL) &&(cur->tok_value != K_NULL))
+							if((cur->tok_value != INT_LITERAL) && (cur->tok_value != STRING_LITERAL) && (cur->tok_value != K_NULL))
 							{
 								printf("invalid update value. only string literals, int literals, and 'null' are supported.\n");
 								rc = INVALID_UPDATE_TYPE;
 								cur->tok_value = INVALID;
+								return rc;
 							}
 							else 
 							{
-								printf("match value with column type\n");
-								// call checkcoltype here
-							}
+								int type_match = checkColType(tab_entry, cur->tok_string, cur->tok_value, column_num);
+								//returns -1 for type mismatch, 1 or 0 for proper size of char and int
+								if(type_match != 1)
+								{ //not a type match
+									switch(type_match)
+									{
+										case -1:
+											printf("update value does not match column type\n");
+											rc = UPDATE_TYPE_MISMATCH;
+											break;
+										case 0:
+											if(cur->tok_value == INT_LITERAL)
+											{
+												printf("integer size error\n");
+												rc = UPDATE_INT_SIZE_FAILURE;
+											}
+											else if(cur->tok_value == STRING_LITERAL)
+											{
+												printf("update char length error\n");
+												rc = UPDATE_CHAR_LEN_MISMATCH;
+											}
+											break;
+									}
+									cur->tok_value = INVALID;
+									return rc;
+								}
+								else
+								{
+									cur = cur->next;
+									if(cur->tok_value != EOC)
+									{
+										//printf("continue parsing\n");
+										if (cur->tok_value == K_WHERE)
+										{
+											has_where = true;
+											cur = cur->next;
+											where_col_no = columnFinder(tab_entry, cur->tok_string);
+											if(where_col_no > -1)
+											{
+												cur = cur->next;
+												if((cur->tok_value == S_EQUAL) || (cur->tok_value == S_LESS) || (cur->tok_value == S_GREATER))
+												{
+													rel_op = cur->tok_value;
+													cur = cur->next; //move past relational operator
+													if((cur->tok_value != INT_LITERAL) && (cur->tok_value != STRING_LITERAL) && (cur->tok_value != K_NULL))
+													{
+														printf("invalid type value in where clause. only string literals, int literals, and 'null' are supported.\n");
+														rc = INVALID_TYPE_IN_WHERE_OF_UPDATE;
+														cur->tok_value = INVALID;
+														return rc;
+													}
+													else 
+													{
+														int where_match = checkColType(tab_entry, cur->tok_string, cur->tok_value, where_col_no);
+														//returns -1 for type mismatch, 1 or 0 for proper size of char and int
+														if(where_match != 1)
+														{ //not a type match
+															switch(where_match)
+															{
+																case -1:
+																	printf("type in where statement does not match column type\n");
+																	rc = MISMATCH_TYPE_IN_WHERE_OF_UPDATE;
+																	break;
+																case 0:
+																	if(cur->tok_value == INT_LITERAL)
+																	{
+																		printf("integer size error\n");
+																		rc = UPDATE_INT_SIZE_FAILURE;
+																	}
+																	else if(cur->tok_value == STRING_LITERAL)
+																	{
+																		printf("update char length error\n");
+																		rc = UPDATE_CHAR_LEN_MISMATCH;
+																	}
+																	break;
+															}
+															cur->tok_value = INVALID;
+															return rc;
+														}
+														else
+														{
+															if(cur->next->tok_value != EOC)
+															{
+																printf("invalid clause after where clause of update\n");
+																rc = INVALID_UPDATE_STATEMENT;
+																cur->next->tok_value = INVALID;
+															}
+															//else - parse ok
+														}//match ok in where clause
+													}//data value in where clause is right type
+												}//valid relational operator
+												else
+												{
+													printf("invalid relational operator found. only <, =, and > are supported\n");
+													rc = INVALID_REL_OP_IN_UPDATE;
+													cur->tok_value = INVALID;
+												}
+											}//column name in where clause found
+											else
+											{
+												printf("no matching column in where clause of update statement\n");
+												rc = NO_MATCHING_COL_IN_WHERE_OF_UPDATE;
+												cur->tok_value = INVALID;
+											}
+										}
+										else
+										{
+											printf("invalid update statement after \n");
+											rc = INVALID_UPDATE_STATEMENT;
+											cur->tok_value = INVALID;
+										}
+									}//there is a where clause
+									//else - parse ok
+								}
+									
+							}//valid input value type
 						}//equal sign found
-					}
+					}//column name found
 					else
 					{
 						printf("no matching column to update\n");
 						rc = NO_MATCHING_COL_TO_UPDATE;
 						cur->tok_value = INVALID;
+						return rc;
 					}
-				}
+				}//values after set keyword
 				else
 				{
 					printf("invalid update statement. missing column to set\n");
 					rc = INVALID_UPDATE_STATEMENT;
 					cur->tok_value = INVALID;
+					return rc;
 				}//missing column name
 			}
 			else 
@@ -2268,50 +2377,50 @@ int sem_update(token_list *t_list)
 				printf("invalid update statement. missing set clause\n");
 				rc = INVALID_UPDATE_STATEMENT;
 				cur->tok_value = INVALID;
+				return rc;
 			}//missing set keyword
 		}//end else for table exists
+	}
+
+	if (!rc)
+	{
+		//printf("update statement parsed ok\n");
+		if(has_where)
+		{
+			//printf("need to check that a row has value in where clause\n");
+			int ok_to_update = checkRowsForValue(tab_entry, cur->tok_string, where_col_no);
+			switch(ok_to_update)
+			{
+				case -3:
+					rc = DBFILE_CORRUPTION;
+					break;
+				case -2:
+					rc = MEMORY_ERROR;
+					break;
+				case -1:
+					rc = FILE_OPEN_ERROR;
+					break;
+				case 0:
+					printf("no matching rows with given value in where clause found\n");
+					rc = NO_MATCHING_ROW_TO_UPDATE;
+					cur->tok_value = INVALID;
+					break;
+				default:
+					printf("match found"); //match found - update is a go
+			}
+
+			printf("ok_to_update is: %d\n", ok_to_update);
+		}
+		else
+		{
+			printf("do the update here!\n");
+		}
 	}
 
 	return rc;
 }
 
-/*table_file_header * getTable(char table_name[])
-{
-	int rc = 0;
-	table_file_header *table_content = NULL;
-	struct _stat file_stat;
 
-	printf("in getTable\n");
-
-	FILE *fhandle = NULL;
-	if ((fhandle = fopen(table_name, "rbc")) == NULL)
-	{
-		printf("there was an error opening the file %s\n",table_name);
-		rc = FILE_OPEN_ERROR;
-		return 0;
-	}//end file open error
-	else
-	{
-		_fstat(_fileno(fhandle), &file_stat);
-		table_content = (table_file_header*)calloc(1, file_stat.st_size);
-
-		if (!table_name)
-		{
-			printf("there was a memory error...\n");
-			rc = MEMORY_ERROR;
-		}//end memory error
-		else
-		{
-			fread(table_content, file_stat.st_size, 1, fhandle);
-			fflush(fhandle);
-			fclose(fhandle);
-		}
-	}
-
-	return table_content;
-}*/
-
-//temporary token holder
 token_list * insertHelper(int tok_class, int tok_value, char* tok_string)
 {
 	token_list *temp = (token_list *)calloc(1, sizeof(token_list));
@@ -2321,7 +2430,7 @@ token_list * insertHelper(int tok_class, int tok_value, char* tok_string)
 	temp->next = NULL;
 
 	return temp;
-}
+}//insertHelper
 
 char* getOuter(tpd_entry *tab_entry)
 {
@@ -2345,7 +2454,7 @@ char* getOuter(tpd_entry *tab_entry)
 	}
 
 	return format;
-}
+}//getOuter
 
 char* getColHeaders(tpd_entry *tab_entry)
 {
@@ -2374,7 +2483,7 @@ char* getColHeaders(tpd_entry *tab_entry)
 	}
 
 	return head;
-}
+}//getColHeaders()
 
 int columnFinder(tpd_entry *tab_entry, char *tok_string)
 {
@@ -2390,9 +2499,197 @@ int columnFinder(tpd_entry *tab_entry, char *tok_string)
 	}//end for
 
 	return -1;
-}
+}//columnFinder()
 
-int checkColType(tpd_entry *tab_entry, int t_type)
+int checkColType(tpd_entry *tab_entry, char *tok_string, int t_type, int c_num)
 {
+	cd_entry *col_entry = NULL;
+	int j;
+	for (j = 0, col_entry = (cd_entry*)((char*)tab_entry + tab_entry->cd_offset); j <= c_num; j++, col_entry++)
+	{
+		if(j == c_num)
+		{
+			if( ((col_entry->col_type == T_INT) && (t_type == INT_LITERAL)) ||
+				((col_entry->col_type == T_CHAR) && (t_type == STRING_LITERAL)) )
+			{
+				//printf("col type matches!\n");
+				if(t_type == STRING_LITERAL)
+				{	//check for string length
+					return checkCharLen(tab_entry, tok_string, c_num);
+				}
+				else if(t_type == INT_LITERAL)
+				{	//check for size of integer
+					return checkIntSize(tok_string);
+				}
+			}
+		}
+		//printf("increment until get to desired column\n");
+	}
+
+	return -1; //-1 for type mismatch
+}//checkColType()
+
+int checkCharLen(tpd_entry *tab_entry, char *tok_string, int c_num)
+{
+	cd_entry *col_entry = NULL;
+	int j;
+	for (j = 0, col_entry = (cd_entry*)((char*)tab_entry + tab_entry->cd_offset); j <= c_num; j++, col_entry++)
+	{
+		if(j == c_num)
+		{
+			if(strlen(tok_string) <= col_entry->col_len)
+				return 1;
+			else
+				return 0;
+		}
+		//printf("increment until get to desired column\n");
+	}//end for
 	return 0;
-}
+}//checkCharLen()
+
+int checkIntSize(char *tok_string)
+{
+	if (strlen(tok_string) > 10)
+		return 0;
+	else if ((strlen(tok_string) == 10) && (strcmp(tok_string, "2147483647") > 0))
+		return 0;
+	else
+		return 1;
+}//checkIntSize()
+
+int checkRowsForValue(tpd_entry *tab_entry, char *tok_string, int c_num)
+{
+	char str[MAX_IDENT_LEN];
+	struct _stat file_stat;
+	table_file_header *head = NULL;
+	unsigned char *buffer, *temp;
+
+	strcpy(str, tab_entry->table_name);
+	strcat(str, ".tab");
+
+	FILE *fhandle = NULL;
+	if ((fhandle = fopen(str, "rbc")) == NULL)
+	{
+		printf("there was an error opening the file %s\n",str);
+		return -1;
+	}//end file open error
+	else
+	{
+		_fstat(_fileno(fhandle), &file_stat);
+		head = (table_file_header*)calloc(1, file_stat.st_size);
+		if (!head)
+		{
+			printf("there was a memory error...\n");
+			return -2;
+		}//end memory error
+		else
+		{
+			fread(head, file_stat.st_size, 1, fhandle);
+			fflush(fhandle);
+			if (head->file_size != file_stat.st_size)
+			{
+				//printf("ptr file_size: %d\n", recs->file_size);
+				printf("read file size and calculated size does not match. db file is corrupted. exiting...\n");
+				return -3;
+			}
+			else
+			{
+				int rows_tb_size = head->file_size - head->record_offset;
+				int record_size = head->record_size;
+				int offset = head->record_offset;
+				int num_records = head->num_records;
+
+				fseek(fhandle, offset, SEEK_SET);
+				buffer = (unsigned char*)calloc(1, record_size * num_records);
+				
+				//temp = (unsigned char*)calloc(1, record_size * num_records);
+
+				if(!buffer)
+					return -2;
+				else
+				{
+					fread(buffer, record_size * num_records, 1, fhandle);
+					fflush(fhandle);
+					cd_entry *col = NULL;
+					int i = 0, rec_cnt = 0, row = 1, matches = 0;
+					while(i < rows_tb_size)
+					{
+						//printf("at row number: %d\n", row);
+						int k, col_offset = 0;
+						for (k = 0, col = (cd_entry*)((char*)tab_entry + tab_entry->cd_offset);
+							k < tab_entry->num_columns; k++, col++)
+						{	//while there are columns in tpd
+							if(col->col_id != c_num)
+							{
+								i += col->col_len + 1;
+								col_offset += col->col_len + 1;
+							}
+							else
+							{
+								//printf("col_offset is %d\n", col_offset);
+								int nullable = buffer[i];
+								if(col->col_type == T_INT)
+								{
+									int elem;
+									if(!nullable)
+									{
+										elem = -99; //for null
+									}//elem is null
+									else
+									{
+										int b = i + 1;
+										char *int_b;
+										int_b = (char*)calloc(1, sizeof(int));
+										for (int a = 0; a < sizeof(int); a++)
+										{
+											int_b[a] = buffer[b + a];
+										}
+										memcpy(&elem, int_b, sizeof(int));
+
+										if(atoi(tok_string) == elem)
+										{
+											matches++;
+											printf("         match cnt %d\n", matches);
+										}
+									}//elem is not null
+									printf("  element is %d\n", elem);
+									
+								}
+								else if (col->col_type == T_CHAR)
+								{
+									char *elem;
+									if(!nullable)
+									{
+										elem = NULL;
+									}//elem is null
+									else
+									{
+										int b = i + 1;
+										int len = col->col_len + 1;
+										elem = (char*)calloc(1, len);
+										for (int a = 0; a < len; a++)
+										{
+											elem[a] = buffer[b + a];
+										}
+										elem[len - 1] = '\0';
+										if (memcmp(tok_string, elem, col->col_len) == 0)
+										{
+											matches++;
+											printf("         match cnt %d\n", matches);
+										}
+									}
+									printf("  element is %s\n", elem);
+								}
+							}
+						}//end for
+						row++;
+						rec_cnt += record_size; //jump to next record
+						i = rec_cnt;
+					}//end while
+					return matches;
+				}//end buffer else
+			}//end file size ok
+		}//end not memory error
+	}//end not file open error
+
+}//checkRowsForValue()

@@ -197,6 +197,13 @@ typedef enum error_return_codes
 	NO_MATCHING_COL_TO_UPDATE,				// -349
 	INVALID_REL_OP_IN_UPDATE,				// -348
 	INVALID_UPDATE_TYPE,					// -347
+	UPDATE_TYPE_MISMATCH,					// -346
+	UPDATE_CHAR_LEN_MISMATCH,				// -345
+	UPDATE_INT_SIZE_FAILURE,				// -344
+	NO_MATCHING_COL_IN_WHERE_OF_UPDATE,		// -343
+	INVALID_TYPE_IN_WHERE_OF_UPDATE,		// -342
+	MISMATCH_TYPE_IN_WHERE_OF_UPDATE,		// -341
+	NO_MATCHING_ROW_TO_UPDATE,				// -340
 
 	/* errors for select */
 	INVALID_SELECT_STATEMENT = -335,   	// -335
@@ -221,14 +228,16 @@ int sem_insert(token_list *t_list);
 int sem_select(token_list *t_list);
 int sem_delete(token_list *t_list);
 int sem_update(token_list *t_list);
-//table_file_header* getTable(char table_name[]);
 
 /* helper functions */
 token_list* insertHelper(int t_class, int t_value, char* t_string);
 char* getOuter(tpd_entry *tab_entry);
 char* getColHeaders(tpd_entry *tab_entry);
 int columnFinder(tpd_entry *tab_entry, char *tok_string);
-int checkColType(tpd_entry *tab_entry, int t_type);
+int checkColType(tpd_entry *tab_entry, char *tok_string, int t_type, int c_num);
+int checkCharLen(tpd_entry *tab_entry, char *tok_string, int c_num);
+int checkIntSize(char *tok_string);
+int checkRowsForValue(tpd_entry *tab_entry, char *tok_string, int c_num);
 
 /*
 	Keep a global list of tpd - in real life, this will be stored

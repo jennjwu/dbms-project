@@ -238,8 +238,9 @@ int columnFinder(tpd_entry *tab_entry, char *tok_string);
 int checkColType(tpd_entry *tab_entry, char *tok_string, int t_type, int c_num);
 int checkCharLen(tpd_entry *tab_entry, char *tok_string, int c_num);
 int checkIntSize(char *tok_string);
-int checkRowsForValue(tpd_entry *tab_entry, char *tok_string, int c_num);
+int checkRowsForValue(tpd_entry *tab_entry, int col_to_update, token_list *update_token, int rel_op, char *tok_string, int c_num);
 int updateHelper(tpd_entry *tab_entry, int col_to_update, token_list *update_token);
+/*int updateHelper(tpd_entry *tab_entry, int col_to_update, token_list *update_token, int where_col, char *where_check);*/
 
 /*
 	Keep a global list of tpd - in real life, this will be stored

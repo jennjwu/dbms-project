@@ -2838,23 +2838,26 @@ int updateHelper(tpd_entry *tab_entry, int col_to_update, token_list *update_tok
 								}
 								else if (col->col_type == T_CHAR)
 								{
+									int new_strlen = strlen(update_token->tok_string);
 									char *elem;
+									int len = col->col_len;
 									if(!nullable)
 									{
 										elem = NULL;
 									}//elem is null
 									else
 									{
-										int len = col->col_len + 1;
-										elem = (char*)calloc(1, len);
+										/*elem = (char*)calloc(1, len);
 										for (int a = 0; a < len; a++)
 										{
 											elem[a] = buffer[b + a];
 										}
-										elem[len - 1] = '\0';
+										elem[len - 1] = '\0';*/
 									}
-									printf("--original elem = %s and new element is %s\n", elem, update_token->tok_string);
+									//printf("--original elem = %s and new element is %s\n", elem, update_token->tok_string);
 
+									memcpy(&buffer[i], &new_strlen, sizeof(unsigned char));
+									memcpy(&buffer[i+1], update_token->tok_string, len);
 								}
 							}
 						}//end for
@@ -2882,6 +2885,7 @@ int updateHelper(tpd_entry *tab_entry, int col_to_update, token_list *update_tok
 						fwrite(buffer, rows_tb_size, 1, fhandle);
 						fflush(fhandle);
 						fclose(fhandle);
+						printf("%d rows updated.\n", num_records);
 					}
 
 				}

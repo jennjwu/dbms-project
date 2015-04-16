@@ -2185,11 +2185,14 @@ int sem_update(token_list *t_list)
 	tpd_entry *tab_entry = NULL;
 	struct _stat file_stat;
 	table_file_header *recs = NULL;
-	token_list *values = NULL, *head = NULL; //to hold retrieved token list
-	int rel_op; //holds value of relational operator in where statement of update
-	int where_col_no; //holds col # of col in where clause of update
-	bool has_where = false;
-
+	
+	//for update stmt
+	int column_num; 					//column to update
+	token_list *update_token = NULL;	//token for update
+	int where_col_no; 					//column in where condition
+	int rel_op; 						//relational operator in where condition
+	bool has_where = false;				//flag to perform where check or not
+	
 	cur = t_list;
 	if ((cur->tok_class != keyword) && (cur->tok_class != identifier) &&
 			(cur->tok_class != type_name))
@@ -2216,7 +2219,7 @@ int sem_update(token_list *t_list)
 				cur = cur->next; //move to column name
 				if(cur->tok_value != EOC)
 				{
-					int column_num = columnFinder(tab_entry, cur->tok_string);
+					column_num = columnFinder(tab_entry, cur->tok_string);
 					if(column_num > -1)
 					{
 						cur = cur->next;
@@ -2244,6 +2247,10 @@ int sem_update(token_list *t_list)
 								{ //not a type match
 									switch(type_match)
 									{
+										case -2:
+											printf("not null constraint\n");
+											rc = UPDATE_NOT_NULL_CONSTRAINT;
+											break;
 										case -1:
 											printf("update value does not match column type\n");
 											rc = UPDATE_TYPE_MISMATCH;
@@ -2266,6 +2273,7 @@ int sem_update(token_list *t_list)
 								}
 								else
 								{
+									update_token = cur; //pointer to token for use in update
 									cur = cur->next;
 									if(cur->tok_value != EOC)
 									{
@@ -2297,6 +2305,7 @@ int sem_update(token_list *t_list)
 														{ //not a type match
 															switch(where_match)
 															{
+																case -2: //null in where clause but column cannot be null'ed	
 																case -1:
 																	printf("type in where statement does not match column type\n");
 																	rc = MISMATCH_TYPE_IN_WHERE_OF_UPDATE;
@@ -2413,7 +2422,18 @@ int sem_update(token_list *t_list)
 		}
 		else
 		{
-			printf("do the update here!\n");
+			//printf("do the update here!\n");
+			//printf("col to update is number %d and update value is: %s\n", column_num, update_token->tok_string);
+			int update = updateHelper(tab_entry, column_num, update_token);
+			switch(update)
+			{
+				case -1:
+					rc = FILE_OPEN_ERROR;
+					break;
+				case -2:
+					rc = MEMORY_ERROR;
+					break;
+			}
 		}
 	}
 
@@ -2521,6 +2541,15 @@ int checkColType(tpd_entry *tab_entry, char *tok_string, int t_type, int c_num)
 				{	//check for size of integer
 					return checkIntSize(tok_string);
 				}
+			}
+			else if (t_type == K_NULL)
+			{
+				if(col_entry->not_null)
+				{
+					return -2;
+				}
+				else
+					return 1;
 			}
 		}
 		//printf("increment until get to desired column\n");
@@ -2693,3 +2722,173 @@ int checkRowsForValue(tpd_entry *tab_entry, char *tok_string, int c_num)
 	}//end not file open error
 
 }//checkRowsForValue()
+
+int updateHelper(tpd_entry *tab_entry, int col_to_update, token_list *update_token)
+{
+	char str[MAX_IDENT_LEN];
+	table_file_header *head = NULL;
+	unsigned char *buffer;
+	struct _stat file_stat;
+
+	strcpy(str, tab_entry->table_name);
+	strcat(str, ".tab");
+	
+	FILE *fhandle = NULL;
+	//Open file for read
+	if ((fhandle = fopen(str, "rbc")) == NULL)
+	{
+		return -1;
+	}//end file open error
+	else
+	{
+		_fstat(_fileno(fhandle), &file_stat);
+		head = (table_file_header*)calloc(1, file_stat.st_size);
+
+		if(!head)
+		{
+			return -2;
+		}//memory error
+		else
+		{
+			fread(head, file_stat.st_size, 1, fhandle);
+			fflush(fhandle);
+
+			if (head->file_size != file_stat.st_size)
+			{
+				return -3; //dbfile corruption
+			}
+			else
+			{
+				int num_records = head->num_records;
+				int offset = head->record_offset;
+				int record_size = head->record_size;
+				int rows_tb_size = head->file_size - head->record_offset;
+				//printf("record tb size %d\n", rows_tb_size);
+				//printf("record size %d\n", record_size);
+				//printf("offset %d\n", offset);
+				
+				fseek(fhandle, offset, SEEK_SET);
+				buffer = (unsigned char*)calloc(1, record_size * num_records);
+				if(!buffer)
+				{
+					return -2;
+				}
+				else
+				{
+					fread(buffer, rows_tb_size, 1, fhandle);
+
+					/*for (int i = 0; i < rows_tb_size; i++)
+					{
+						printf("%u", buffer[i]);
+					}*/
+
+					cd_entry *col = NULL;
+					int i = 0, rec_cnt = 0, row = 1, matches = 0;
+					while(i < rows_tb_size)
+					{
+						//printf("at row number: %d\n", row);
+						int k, col_offset = 0;
+						for (k = 0, col = (cd_entry*)((char*)tab_entry + tab_entry->cd_offset);
+							k < tab_entry->num_columns; k++, col++)
+						{	//while there are columns in tpd
+							if(col->col_id != col_to_update)
+							{
+								i += col->col_len + 1;
+								col_offset += col->col_len + 1;
+							}
+							else
+							{
+								//printf("col_offset is %d\n", col_offset);
+								int nullable = buffer[i];
+								int b = i + 1;
+								if(col->col_type == T_INT)
+								{
+									int new_value = atoi(update_token->tok_string);
+									int elem;
+									if(!nullable)
+									{
+										int int_size = sizeof(int);
+										memcpy(&buffer[i], &int_size, sizeof(unsigned char));
+										//elem = -99; //temp hack for null
+									}//elem is nul l
+									/*else
+									{
+										char *int_b;
+										int_b = (char*)calloc(1, sizeof(int));
+										for (int a = 0; a < sizeof(int); a++)
+										{
+											int_b[a] = buffer[b + a];
+										}
+										memcpy(&elem, int_b, sizeof(int));
+									}//elem is not null*/
+									
+									//printf("--original elem = %d and new element is %d\n", elem, new_value);
+
+									memcpy(&buffer[i+1], &new_value, sizeof(int));
+
+									char *int_b;
+									int_b = (char*)calloc(1, sizeof(int));
+									for (int a = 0; a < sizeof(int); a++)
+									{
+										int_b[a] = buffer[b + a];
+									}
+									memcpy(&elem, int_b, sizeof(int));
+									//printf("----new value is %d\n\n", elem);
+									
+								}
+								else if (col->col_type == T_CHAR)
+								{
+									char *elem;
+									if(!nullable)
+									{
+										elem = NULL;
+									}//elem is null
+									else
+									{
+										int len = col->col_len + 1;
+										elem = (char*)calloc(1, len);
+										for (int a = 0; a < len; a++)
+										{
+											elem[a] = buffer[b + a];
+										}
+										elem[len - 1] = '\0';
+									}
+									printf("--original elem = %s and new element is %s\n", elem, update_token->tok_string);
+
+								}
+							}
+						}//end for
+						row++;
+						rec_cnt += record_size; //jump to next record
+						i = rec_cnt;
+					}//end while
+
+
+
+					/*for (int i = 0; i < rows_tb_size; i++)
+					{
+						printf("%u", buffer[i]);
+					}*/
+
+					fclose(fhandle);
+
+					if ((fhandle = fopen(str, "wbc")) == NULL)
+					{
+						return -1;
+					}//end file open error
+					else
+					{
+						fwrite(head, sizeof(table_file_header), 1, fhandle);
+						fwrite(buffer, rows_tb_size, 1, fhandle);
+						fflush(fhandle);
+						fclose(fhandle);
+					}
+
+				}
+				
+			}
+			return 1;
+		}
+	}
+
+}//updateHelper()

@@ -204,6 +204,7 @@ typedef enum error_return_codes
 	INVALID_TYPE_IN_WHERE_OF_UPDATE,		// -342
 	MISMATCH_TYPE_IN_WHERE_OF_UPDATE,		// -341
 	NO_MATCHING_ROW_TO_UPDATE,				// -340
+	UPDATE_NOT_NULL_CONSTRAINT,				// -339
 
 	/* errors for select */
 	INVALID_SELECT_STATEMENT = -335,   	// -335
@@ -238,6 +239,7 @@ int checkColType(tpd_entry *tab_entry, char *tok_string, int t_type, int c_num);
 int checkCharLen(tpd_entry *tab_entry, char *tok_string, int c_num);
 int checkIntSize(char *tok_string);
 int checkRowsForValue(tpd_entry *tab_entry, char *tok_string, int c_num);
+int updateHelper(tpd_entry *tab_entry, int col_to_update, token_list *update_token);
 
 /*
 	Keep a global list of tpd - in real life, this will be stored

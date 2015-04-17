@@ -2306,6 +2306,9 @@ int sem_update(token_list *t_list)
 															switch(where_match)
 															{
 																case -2: //null in where clause but column cannot be null'ed	
+																	printf("column in where cannot be set to null, so no matching rows to update\n");
+																	rc = MISMATCH_TYPE_IN_WHERE_OF_UPDATE;
+																	break;
 																case -1:
 																	printf("type in where statement does not match column type\n");
 																	rc = MISMATCH_TYPE_IN_WHERE_OF_UPDATE;
@@ -2400,7 +2403,7 @@ int sem_update(token_list *t_list)
 			//printf("col to update is number %d and update value is: %s\n", column_num, update_token->tok_string);
 			//printf("col to check in where is number %d and value is %s\n", where_col_no, cur->tok_string);
 			//printf("need to check that a row has value in where clause\n");
-			int ok_to_update = checkRowsForValue(tab_entry, column_num, update_token, rel_op, cur->tok_string, where_col_no);
+			int ok_to_update = checkRowsForValue(tab_entry, column_num, update_token, rel_op, cur, where_col_no);
 			switch(ok_to_update)
 			{
 				case -3:
@@ -2421,7 +2424,6 @@ int sem_update(token_list *t_list)
 					;//printf("match found"); //match found - update is a go
 			}
 
-			printf("%d rows updated.\n", ok_to_update);
 		}//has where clause
 		else
 		{	//no where clause, update all rows
@@ -2435,6 +2437,8 @@ int sem_update(token_list *t_list)
 					rc = MEMORY_ERROR;
 					break;
 			}
+
+			//printf("update token is %s and token_value is %d\n", update_token->tok_string, update_token->tok_value);
 		}//no where clause, update all rows
 	}
 
@@ -2587,7 +2591,7 @@ int checkIntSize(char *tok_string)
 		return 1;
 }//checkIntSize()
 
-int checkRowsForValue(tpd_entry *tab_entry, int col_to_update, token_list *update_token, int rel_op, char *tok_string, int c_num)
+int checkRowsForValue(tpd_entry *tab_entry, int col_to_update, token_list *update_token, int rel_op, token_list *where_token, int c_num)
 {
 	char str[MAX_IDENT_LEN];
 	struct _stat file_stat;
@@ -2661,105 +2665,115 @@ int checkRowsForValue(tpd_entry *tab_entry, int col_to_update, token_list *updat
 								//printf("col_offset is %d\n", col_offset);
 								int nullable = buffer[i];
 								int b = i + 1;
-								if(col->col_type == T_INT)
+								if(where_token->tok_value == K_NULL)
 								{
-									int elem;
-									if(!nullable)
+									//printf("in here\n");
+									int zero = 0;
+									if(memcmp(&buffer[i], &zero, 1) == 0)
 									{
-										elem = -99; //for null
-									}//elem is null
-									else
-									{
-										char *int_b;
-										int_b = (char*)calloc(1, sizeof(int));
-										for (int a = 0; a < sizeof(int); a++)
-										{
-											int_b[a] = buffer[b + a];
-										}
-										memcpy(&elem, int_b, sizeof(int));
-
-										switch(rel_op)
-										{
-											case S_EQUAL:
-												if(atoi(tok_string) == elem)
-												{
-													matches++;
-													//printf("         match cnt %d\n", matches);
-													update = true;
-												}
-												break;
-											case S_LESS:
-												if(elem < atoi(tok_string))
-												{
-													matches++;
-													//printf("         match cnt %d\n", matches);
-													update = true;
-												}
-												break;
-											case S_GREATER:
-												if(elem > atoi(tok_string))
-												{
-													matches++;
-													//printf("         match cnt %d\n", matches);
-													update = true;
-												}
-												break;
-										}
-									}//elem is not null
-									//printf("  element is %d\n", elem);
-									
+										matches++;
+										update = true;
+									}
 								}
-								else if (col->col_type == T_CHAR)
+								else
 								{
-									char *elem;
-									if(!nullable)
+									if(col->col_type == T_INT)
 									{
-										elem = NULL;
-									}//elem is null
-									else
-									{
-										int len = col->col_len + 1;
-										elem = (char*)calloc(1, len);
-										for (int a = 0; a < len; a++)
+										int elem;
+										if(!nullable)
 										{
-											elem[a] = buffer[b + a];
-										}
-										elem[len - 1] = '\0';
-
-										switch(rel_op)
+											elem = -99; //for null
+										}//elem is null
+										else
 										{
-											case S_EQUAL:
-												if (memcmp(tok_string, elem, col->col_len) == 0)
-												{
-													matches++;
-													//printf("         match cnt %d\n", matches);
-													update = true;
-												}
-												break;
-											case S_LESS:
-												if (memcmp(tok_string, elem, col->col_len) < 0)
-												{
-													matches++;
-													//printf("         match cnt %d\n", matches);
-													update = true;
-												}
-												break;
-											case S_GREATER:
-												if (memcmp(tok_string, elem, col->col_len) > 0)
-												{
-													matches++;
-													//printf("         match cnt %d\n", matches);
-													update = true;
-												}
-												break;
-										}
+											char *int_b;
+											int_b = (char*)calloc(1, sizeof(int));
+											for (int a = 0; a < sizeof(int); a++)
+											{
+												int_b[a] = buffer[b + a];
+											}
+											memcpy(&elem, int_b, sizeof(int));
 
-										//char can only be updated if it uses equal sign
+											switch(rel_op)
+											{
+												case S_EQUAL:
+													if(atoi(where_token->tok_string) == elem)
+													{
+														matches++;
+														//printf("         match cnt %d\n", matches);
+														update = true;
+													}
+													break;
+												case S_LESS:
+													if(elem < atoi(where_token->tok_string))
+													{
+														matches++;
+														//printf("         match cnt %d\n", matches);
+														update = true;
+													}
+													break;
+												case S_GREATER:
+													if(elem > atoi(where_token->tok_string))
+													{
+														matches++;
+														//printf("         match cnt %d\n", matches);
+														update = true;
+													}
+													break;
+											}
+										}//elem is not null
+										//printf("  element is %d\n", elem);
 										
 									}
-									//printf("  element is %s\n", elem);
-								}
-							}
+									else if (col->col_type == T_CHAR)
+									{
+										char *elem;
+										if(!nullable)
+										{
+											elem = NULL;
+										}//elem is null
+										else
+										{
+											int len = col->col_len + 1;
+											elem = (char*)calloc(1, len);
+											for (int a = 0; a < len; a++)
+											{
+												elem[a] = buffer[b + a];
+											}
+											elem[len - 1] = '\0';
+
+											switch(rel_op)
+											{
+												case S_EQUAL:
+													if (memcmp(where_token->tok_string, elem, col->col_len) == 0)
+													{
+														matches++;
+														//printf("         match cnt %d\n", matches);
+														update = true;
+													}
+													break;
+												case S_LESS:
+													if (memcmp(where_token->tok_string, elem, col->col_len) < 0)
+													{
+														matches++;
+														//printf("         match cnt %d\n", matches);
+														update = true;
+													}
+													break;
+												case S_GREATER:
+													if (memcmp(where_token->tok_string, elem, col->col_len) > 0)
+													{
+														matches++;
+														//printf("         match cnt %d\n", matches);
+														update = true;
+													}
+													break;
+											}										
+										}
+										//printf("  element is %s\n", elem);
+									}
+								}//not testing for null in where clause
+							}//column id matches
 						}//end for
 
 						if (update)
@@ -2775,21 +2789,43 @@ int checkRowsForValue(tpd_entry *tab_entry, int col_to_update, token_list *updat
 								}
 								else
 								{
-									//printf("col_offset is %d\n", col_offset);
-									int nullable = buffer[i];
-									int b = j + 1;
-									if(col->col_type == T_INT)
+									if(update_token->tok_value == K_NULL)
 									{
-										int new_value = atoi(update_token->tok_string);
-										int elem;
-										if(!nullable)
+										//printf("special set to null here\n");
+										int sizer = 0;
+										memcpy(&buffer[j], &sizer, sizeof(unsigned char));
+										memcpy(&buffer[j+1], &sizer, col->col_len);
+									}//null update
+									else
+									{
+										//printf("col_offset is %d\n", col_offset);
+										int nullable = buffer[i];
+										int b = j + 1;
+										if(col->col_type == T_INT)
 										{
-											int int_size = sizeof(int);
-											memcpy(&buffer[j], &int_size, sizeof(unsigned char));
-											//elem = -99; //temp hack for null
-										}//elem is nul l
-										/*else
-										{
+											int new_value = atoi(update_token->tok_string);
+											int elem;
+											if(!nullable)
+											{
+												int int_size = sizeof(int);
+												memcpy(&buffer[j], &int_size, sizeof(unsigned char));
+												//elem = -99; //temp hack for null
+											}//elem is nul l
+											/*else
+											{
+												char *int_b;
+												int_b = (char*)calloc(1, sizeof(int));
+												for (int a = 0; a < sizeof(int); a++)
+												{
+													int_b[a] = buffer[b + a];
+												}
+												memcpy(&elem, int_b, sizeof(int));
+											}//elem is not null*/
+											
+											//printf("--original elem = %d and new element is %d\n", elem, new_value);
+
+											memcpy(&buffer[j+1], &new_value, sizeof(int));
+
 											char *int_b;
 											int_b = (char*)calloc(1, sizeof(int));
 											for (int a = 0; a < sizeof(int); a++)
@@ -2797,48 +2833,35 @@ int checkRowsForValue(tpd_entry *tab_entry, int col_to_update, token_list *updat
 												int_b[a] = buffer[b + a];
 											}
 											memcpy(&elem, int_b, sizeof(int));
-										}//elem is not null*/
-										
-										//printf("--original elem = %d and new element is %d\n", elem, new_value);
-
-										memcpy(&buffer[j+1], &new_value, sizeof(int));
-
-										char *int_b;
-										int_b = (char*)calloc(1, sizeof(int));
-										for (int a = 0; a < sizeof(int); a++)
-										{
-											int_b[a] = buffer[b + a];
+											//printf("----new value is %d\n\n", elem);
+											
 										}
-										memcpy(&elem, int_b, sizeof(int));
-										//printf("----new value is %d\n\n", elem);
-										
-									}
-									else if (col->col_type == T_CHAR)
-									{
-										int new_strlen = strlen(update_token->tok_string);
-										char *elem;
-										int len = col->col_len;
-										if(!nullable)
+										else if (col->col_type == T_CHAR)
 										{
-											elem = NULL;
-										}//elem is null
-										/*else
-										{
-											elem = (char*)calloc(1, len);
-											for (int a = 0; a < len; a++)
+											int new_strlen = strlen(update_token->tok_string);
+											char *elem;
+											int len = col->col_len;
+											if(!nullable)
 											{
-												elem[a] = buffer[b + a];
-											}
-											elem[len - 1] = '\0';
-										}*/
-										//printf("--original elem = %s and new element is %s\n", elem, update_token->tok_string);
+												elem = NULL;
+											}//elem is null
+											/*else
+											{
+												elem = (char*)calloc(1, len);
+												for (int a = 0; a < len; a++)
+												{
+													elem[a] = buffer[b + a];
+												}
+												elem[len - 1] = '\0';
+											}*/
+											//printf("--original elem = %s and new element is %s\n", elem, update_token->tok_string);
 
-										memcpy(&buffer[j], &new_strlen, sizeof(unsigned char));
-										memcpy(&buffer[j+1], update_token->tok_string, len);
+											memcpy(&buffer[j], &new_strlen, sizeof(unsigned char));
+											memcpy(&buffer[j+1], update_token->tok_string, len);
+										}
 									}
 								}
 							}//end for
-
 						}
 
 						row++;
@@ -2856,6 +2879,7 @@ int checkRowsForValue(tpd_entry *tab_entry, int col_to_update, token_list *updat
 						fwrite(buffer, rows_tb_size, 1, fhandle);
 						fflush(fhandle);
 						fclose(fhandle);
+						printf("%d rows updated.\n", matches);
 					}
 
 					return matches;
@@ -2941,67 +2965,77 @@ int updateHelper(tpd_entry *tab_entry, int col_to_update, token_list *update_tok
 							}
 							else
 							{
-								//printf("col_offset is %d\n", col_offset);
-								int nullable = buffer[i];
-								int b = i + 1;
-								if(col->col_type == T_INT)
+								if(update_token->tok_value == K_NULL)
 								{
-									int new_value = atoi(update_token->tok_string);
-									int elem;
-									if(!nullable)
+									//printf("special set to null here\n");
+									int sizer = 0;
+									memcpy(&buffer[i], &sizer, sizeof(unsigned char));
+									memcpy(&buffer[i+1], &sizer, col->col_len);
+								}//null update
+								else
+								{
+									//printf("col_offset is %d\n", col_offset);
+									int nullable = buffer[i];
+									int b = i + 1;
+									if(col->col_type == T_INT)
 									{
-										int int_size = sizeof(int);
-										memcpy(&buffer[i], &int_size, sizeof(unsigned char));
-										//elem = -99; //temp hack for null
-									}//elem is nul l
-									/*else
-									{
-										char *int_b;
+										int new_value = atoi(update_token->tok_string);
+										int elem;
+										if(!nullable)
+										{
+											int int_size = sizeof(int);
+											memcpy(&buffer[i], &int_size, sizeof(unsigned char));
+											//elem = -99; //temp hack for null
+										}//elem is nul l
+										/*else
+										{
+											char *int_b;
+											int_b = (char*)calloc(1, sizeof(int));
+											for (int a = 0; a < sizeof(int); a++)
+											{
+												int_b[a] = buffer[b + a];
+											}
+											memcpy(&elem, int_b, sizeof(int));
+										}//elem is not null*/
+										
+										//printf("--original elem = %d and new element is %d\n", elem, new_value);
+
+										memcpy(&buffer[i+1], &new_value, sizeof(int));
+
+										/*char *int_b;
 										int_b = (char*)calloc(1, sizeof(int));
 										for (int a = 0; a < sizeof(int); a++)
 										{
 											int_b[a] = buffer[b + a];
 										}
-										memcpy(&elem, int_b, sizeof(int));
-									}//elem is not null*/
-									
-									//printf("--original elem = %d and new element is %d\n", elem, new_value);
-
-									memcpy(&buffer[i+1], &new_value, sizeof(int));
-
-									char *int_b;
-									int_b = (char*)calloc(1, sizeof(int));
-									for (int a = 0; a < sizeof(int); a++)
-									{
-										int_b[a] = buffer[b + a];
+										memcpy(&elem, int_b, sizeof(int));*/
+										//printf("----new value is %d\n\n", elem);
+										
 									}
-									memcpy(&elem, int_b, sizeof(int));
-									//printf("----new value is %d\n\n", elem);
-									
-								}
-								else if (col->col_type == T_CHAR)
-								{
-									int new_strlen = strlen(update_token->tok_string);
-									char *elem;
-									int len = col->col_len;
-									if(!nullable)
+									else if (col->col_type == T_CHAR)
 									{
-										elem = NULL;
-									}//elem is null
-									else
-									{
-										/*elem = (char*)calloc(1, len);
-										for (int a = 0; a < len; a++)
+										int new_strlen = strlen(update_token->tok_string);
+										char *elem;
+										int len = col->col_len;
+										if(!nullable)
 										{
-											elem[a] = buffer[b + a];
+											elem = NULL;
+										}//elem is null
+										else
+										{
+											/*elem = (char*)calloc(1, len);
+											for (int a = 0; a < len; a++)
+											{
+												elem[a] = buffer[b + a];
+											}
+											elem[len - 1] = '\0';*/
 										}
-										elem[len - 1] = '\0';*/
-									}
-									//printf("--original elem = %s and new element is %s\n", elem, update_token->tok_string);
+										//printf("--original elem = %s and new element is %s\n", elem, update_token->tok_string);
 
-									memcpy(&buffer[i], &new_strlen, sizeof(unsigned char));
-									memcpy(&buffer[i+1], update_token->tok_string, len);
-								}
+										memcpy(&buffer[i], &new_strlen, sizeof(unsigned char));
+										memcpy(&buffer[i+1], update_token->tok_string, len);
+									}
+								}//regular update
 							}
 						}//end for
 						row++;

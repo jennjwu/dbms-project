@@ -1823,8 +1823,8 @@ int sem_delete(token_list *t_list)
 						{
 							col_match = true;
 							col_id = col_entry->col_id; //get column number
-							col_type = col_entry->col_type; //get column type
-							col_length = col_entry->col_len; //get column length (to know how many bytes to read)
+							//col_type = col_entry->col_type; //get column type
+							//col_length = col_entry->col_len; //get column length (to know how many bytes to read)
 							break;
 						}//end strcmp
 						else
@@ -1860,179 +1860,6 @@ int sem_delete(token_list *t_list)
 							}
 							else
 							{
-								/*if((cur->tok_value == INT_LITERAL) && (col_type == T_INT))
-								{
-									printf("int data value found\n");
-									int col_value = atoi(cur->tok_string);
-
-									//read records from file
-									char str[MAX_IDENT_LEN];
-									strcpy(str, tab_entry->table_name);
-									strcat(str, ".tab");
-
-									FILE *fhandle = NULL;
-									if ((fhandle = fopen(str, "rbc")) == NULL)
-									{
-										printf("there was an error opening the file %s\n",str);
-										rc = FILE_OPEN_ERROR;
-									}//end file open error
-									else
-									{
-										_fstat(_fileno(fhandle), &file_stat);
-										recs = (table_file_header*)calloc(1, file_stat.st_size);
-										if (!recs)
-										{
-											printf("there was a memory error...\n");
-											rc = MEMORY_ERROR;
-										}//end memory error
-										else
-										{
-											fread(recs, file_stat.st_size, 1, fhandle);
-											fflush(fhandle);
-											if (recs->file_size != file_stat.st_size)
-											{
-												printf("ptr file_size: %d\n", recs->file_size);
-												printf("read file size and calculated size does not match. db file is corrupted. exiting...\n");
-												rc = DBFILE_CORRUPTION;
-												return rc;
-											}
-											else
-											{
-												int rows_tb_size = recs->file_size - recs->record_offset;
-												int record_size = recs->record_size;
-												int offset = recs->record_offset;
-												int num_records = recs->num_records;
-
-												fseek(fhandle, offset, SEEK_SET);
-												unsigned char *buffer;
-												buffer = (unsigned char*)calloc(1, record_size * num_records);
-
-												unsigned char *temp;
-												temp = (unsigned char*)calloc(1, record_size * num_records);		
-
-												if (!buffer)
-													rc = MEMORY_ERROR;
-												else
-												{
-													fread(buffer, rows_tb_size, 1, fhandle);
-													fflush(fhandle);
-													fseek(fhandle, offset, SEEK_SET);
-
-													//int rowArray[num_records];
-
-													int i = 0, rec_cnt = 0, rows = 1, matches = 0, keepers=0;
-													while (i < rows_tb_size)
-													{
-														printf("moving to this index now %d\n",i);
-														cd_entry  *col = NULL;
-														int k, row_col = 0;
-														for (k = 0, col = (cd_entry*)((char*)tab_entry + tab_entry->cd_offset);
-															k < tab_entry->num_columns; k++, col++)
-														{	//while there are columns in tpd
-															unsigned char col_len = (unsigned char)buffer[i];
-															if(k == col_id)
-															{	//if it is the selected column
-																if ((int)col_len > 0)
-																{
-																	int b = i + 1;
-																	char *int_b;
-																	int elem;
-																	int_b = (char*)calloc(1, sizeof(int));
-																	for (int a = 0; a < sizeof(int); a++)
-																	{
-																		int_b[a] = buffer[b + a];
-																	}
-																	memcpy(&elem, int_b, sizeof(int));
-																	if(elem != col_value)
-																	{
-																		printf("|row #%d| %11d|\n",rows, elem);
-																		printf("adding to temp: %d\n", keepers);
-																		int adder = keepers*record_size;
-																		printf("freading now and adding to temp at: %d\n", adder);
-																		fread(temp+adder, record_size, 1, fhandle);
-																		keepers++;
-																	}
-																	else
-																	{	//match found
-																		printf("|row #%d| %11d|delete match\n",rows, elem);
-																		matches++;
-																		//skip record and increment fhandle pointer by one record size
-																		printf("skipping ahead now\n");
-																		fseek(fhandle, record_size, SEEK_CUR);
-																	}
-																}
-																else if((int)col_len == 0)
-																{
-																	int b = i + 1;
-																	char *null_b;
-																	int len = 11;
-																	null_b = (char*)calloc(1, len);
-																	strcat(null_b, "-");
-																	int str_len = strlen(null_b);
-																	int width = (str_len > len) ? str_len : len;
-
-																	printf("|row #%d| ", rows);
-																	while (str_len < width)
-																	{
-																		printf(" ");
-																		str_len++;
-																	}
-																	printf("%s|is null\n", null_b);
-																	fread(temp, record_size, 1, fhandle);
-																}
-																k++;
-															}
-															i += col->col_len+1; //move to next item/column	
-														}
-														rows++;
-														rec_cnt += record_size; //jump to next record
-														i = rec_cnt;
-
-													}//end while
-													if(matches == 0)
-													{
-														printf("error: no row with matching data value in that column to be deleted\n");
-														rc = NO_ROWS_TO_DELETE;
-														cur->tok_value = INVALID;
-													}
-													else
-													{
-														int to_keep = num_records - matches;
-														printf("number to delete %d, and number to rewrite %d\n", matches, to_keep);
-														
-														int n = record_size * to_keep;
-														printf("size of record_size is %d and n is : %d\n",record_size,n);
-														//fwrite(newbuff, record_size*matches, 1, fhandle);
-														for(int k = 0; k < n; k++)
-														{
-															printf("%u",(unsigned char*)temp[k]);
-														}
-
-														if ((fhandle = fopen(str, "wbc")) == NULL)
-														{
-															printf("there was an error opening the file %s\n",str);
-															rc = FILE_OPEN_ERROR;
-														}
-														else
-														{
-															recs->num_records = to_keep;
-															recs->file_size = to_keep * record_size + sizeof(table_file_header);
-															fwrite(recs, sizeof(table_file_header), 1, fhandle);
-															fwrite(temp, n, 1, fhandle);
-														}
-														
-															
-													}//there are matches
-												}//not memory error
-											}
-										}
-
-									}//file open ok
-								}//int data value
-								else if ((cur->tok_value == STRING_LITERAL) && (col_type == T_CHAR))
-								{
-									printf("char data value found\n");
-								}//char data value*/
 								if( ((cur->tok_value == INT_LITERAL) && (col_type == T_INT)) || 
 									((cur->tok_value == STRING_LITERAL) && (col_type == T_CHAR)) )
 								{
@@ -2044,7 +1871,7 @@ int sem_delete(token_list *t_list)
 									printf("column matches for delete\n");
 
 									//read records from file
-									char str[MAX_IDENT_LEN];
+									/*char str[MAX_IDENT_LEN];
 									strcpy(str, tab_entry->table_name);
 									strcat(str, ".tab");
 
@@ -2096,7 +1923,7 @@ int sem_delete(token_list *t_list)
 											}//end not dbfile corruption
 											fflush(fhandle);
 										}//end not memory error
-									}//end open file
+									}//end open file*/
 								}
 								else
 								{
@@ -2138,21 +1965,23 @@ int sem_delete(token_list *t_list)
 						rc = MEMORY_ERROR;
 					else
 					{
-						printf("open for read ok\n");
+						//printf("open for read ok\n");
+
 						fread(header, sizeof(table_file_header), 1, fhandle);
 						fflush(fhandle);
 						fclose(fhandle);
+						int rows_to_delete = header->num_records;
 
-						printf("file size is %d\n", header->file_size);
-						printf("record size is %d\n", header->record_size);
-						printf("num_recs is %d\n", header->num_records);
-						printf("rec offset is at %d\n", header->record_offset);
+						//printf("file size is %d\n", header->file_size);
+						//printf("record size is %d\n", header->record_size);
+						//printf("num_recs is %d\n", header->num_records);
+						//printf("rec offset is at %d\n", header->record_offset);
 
 						header->num_records = 0; // update to zero records
 						header->file_size = sizeof(table_file_header);
 
-						printf("new file size is %d\n", header->file_size);
-						printf("new num_recs is %d\n", header->num_records);
+						//printf("new file size is %d\n", header->file_size);
+						//printf("new num_recs is %d\n", header->num_records);
 						
 						if ((fhandle = fopen(str, "wbc")) == NULL)
 							rc = FILE_OPEN_ERROR;
@@ -2161,7 +1990,7 @@ int sem_delete(token_list *t_list)
 							fwrite(header, sizeof(table_file_header), 1, fhandle);
 							fflush(fhandle);
 							fclose(fhandle);
-							printf("file write ok\n");
+							printf("%d rows deleted.\n", rows_to_delete);
 						}
 					}//not memory error	
 				}//file open OK

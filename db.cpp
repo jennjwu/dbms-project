@@ -1782,10 +1782,12 @@ int sem_delete(token_list *t_list)
 	int rc = 0;
 	token_list *cur;
 	tpd_entry *tab_entry = NULL;
-	struct _stat file_stat;
-	table_file_header *header = NULL;
 	table_file_header *recs = NULL;
-	token_list *values = NULL, *head = NULL; //to hold retrieved token list
+
+	token_list *delete_token = NULL;	//token for delete
+	int where_col_no; 					//column in where condition
+	int rel_op; 						//relational operator in where condition
+	bool has_where = false;				//flag to perform where check or not
 
 	cur = t_list;
 	cur = cur->next; //move past FROM keyword
@@ -1807,202 +1809,122 @@ int sem_delete(token_list *t_list)
 		else
 		{
 			cur = cur->next;
-			if(cur->tok_value == K_WHERE)
+			if(cur->tok_value != EOC)
 			{
-				if(cur->next->tok_value != EOC)
+				if(cur->tok_value == K_WHERE)
 				{
-					cur = cur->next;
-
-					//get column names and check if cur->string matches
-					cd_entry  *col_entry = NULL;
-					int i, col_id = 0, col_type = 0, col_offset = 0, col_length = 0;
-					bool col_match = false;
-					for (i = 0, col_entry = (cd_entry*)((char*)tab_entry + tab_entry->cd_offset); i < tab_entry->num_columns; i++, col_entry++)
+					has_where = true;
+					if(cur->next->tok_value != EOC)
 					{
-						if(strcmp(col_entry->col_name, cur->tok_string) == 0)
-						{
-							col_match = true;
-							col_id = col_entry->col_id; //get column number
-							//col_type = col_entry->col_type; //get column type
-							//col_length = col_entry->col_len; //get column length (to know how many bytes to read)
-							break;
-						}//end strcmp
-						else
-						{
-							col_offset += col_entry->col_len + 1; //plus one for len byte
-						}
-					}//end for
-
-					if(col_match)
-					{	//continue parsing
 						cur = cur->next;
-						if (cur->tok_value == EOC)
+
+						//get column names and check if cur->string matches
+						where_col_no = columnFinder(tab_entry, cur->tok_string);
+						if(where_col_no > -1)
 						{
-							printf("invalid where clause in delete statement.\n  column name must be followed by >, <, or =");
-							rc = INVALID_WHERE_CALUSE_IN_DELETE;
-							cur->tok_value = INVALID;
-						}
-						else if ((cur->tok_value != S_EQUAL) && (cur->tok_value != S_LESS) && (cur->tok_value != S_GREATER))
-						{
-							printf("invalid where clause in delete statement.\n column name must be followed by >, <, or =\n");
-							rc = INVALID_REL_COMP_IN_WHERE_IN_DELETE;
-							cur->tok_value = INVALID;
-						}
-						else
-						{	//if not EOC but is = > <
-							printf("relation operator is %s\n", cur->tok_string);
 							cur = cur->next;
-							if(cur->next->tok_value != EOC)
+							if((cur->tok_value == S_EQUAL) || (cur->tok_value == S_LESS) || (cur->tok_value == S_GREATER))
 							{
-								printf("delete statement currently only supports one where condition\n");
-								rc = INVALID_DELETE_STATEMENT;
-								cur->next->tok_value = INVALID;
+								rel_op = cur->tok_value;
+								cur = cur->next; //move past relational operator
+								if((cur->tok_value != INT_LITERAL) && (cur->tok_value != STRING_LITERAL) && (cur->tok_value != K_NULL))
+								{
+									printf("invalid type value in where clause. only string literals, int literals, and 'null' are supported.\n");
+									rc = INVALID_TYPE_IN_WHERE_OF_DELETE;
+									cur->tok_value = INVALID;
+									return rc;
+								}
+								else 
+								{
+									int where_match = checkColType(tab_entry, cur->tok_string, cur->tok_value, where_col_no);
+									//returns -1 for type mismatch, 1 or 0 for proper size of char and int
+									if(where_match != 1)
+									{ //not a type match
+										printf("type in where statement does not match column type\n");
+										rc = MISMATCH_TYPE_IN_WHERE_OF_DELETE;
+										cur->tok_value = INVALID;
+										return rc;
+									}
+									else
+									{
+										if(cur->next->tok_value != EOC)
+										{
+											printf("invalid clause after where clause of update\n");
+											rc = INVALID_UPDATE_STATEMENT;
+											cur->next->tok_value = INVALID;
+										}
+										//else - parse ok
+									}//match ok in where clause
+								}//valid type in where clause
 							}
 							else
 							{
-								if( ((cur->tok_value == INT_LITERAL) && (col_type == T_INT)) || 
-									((cur->tok_value == STRING_LITERAL) && (col_type == T_CHAR)) )
-								{
-
-
-									//use replacement strategy -> 
-									//store records in memory, check for condition, then take bottom and copy it to the deleted entry spot
-
-									printf("column matches for delete\n");
-
-									//read records from file
-									/*char str[MAX_IDENT_LEN];
-									strcpy(str, tab_entry->table_name);
-									strcat(str, ".tab");
-
-									FILE *fhandle = NULL;
-									if ((fhandle = fopen(str, "rbc")) == NULL)
-									{
-										printf("there was an error opening the file %s\n",str);
-										rc = FILE_OPEN_ERROR;
-									}//end file open error
-									else
-									{
-										_fstat(_fileno(fhandle), &file_stat);
-										header = (table_file_header*)calloc(1, sizeof(table_file_header));
-										if (!header)
-										{
-											printf("there was a memory error...\n");
-											rc = MEMORY_ERROR;
-										}//end memory error
-										else
-										{
-											fread(header, sizeof(table_file_header), 1, fhandle);
-											if (header->file_size != file_stat.st_size)
-											{
-												printf("ptr file_size: %d\n", recs->file_size);
-												printf("read file size and calculated size does not match. db file is corrupted. exiting...\n");
-												rc = DBFILE_CORRUPTION;
-												return rc;
-											}
-											else
-											{
-												int num_recs = header->num_records;
-												int rec_size = header->record_size;
-												recs = (table_file_header*)calloc(1, num_recs*rec_size);
-												fread(recs, num_recs*rec_size, 1, fhandle);
-
-												printf("num_records is %d and rec_size is %d\n", num_recs, rec_size);
-												printf("total size read for records: %d\n", num_recs*rec_size);
-												printf("col_id is %d and col_offset is %d and col_len is %d\n", col_id, col_offset, col_length);
-
-												for (int r = 0; r < num_recs; r++)
-												{
-													for(int c = col_offset+1; c < col_length; c++)
-														printf("%c", recs[c*r]);
-													printf("\n");
-												}
-
-
-
-											}//end not dbfile corruption
-											fflush(fhandle);
-										}//end not memory error
-									}//end open file*/
-								}
-								else
-								{
-									printf("data value in where clause does not match type of column\n");
-									rc = WHERE_VAL_COLTYPE_MISMATCH_IN_DELETE;
-									cur->tok_value = INVALID;
-								}//coltype and val type mismatch
-							}//only one where condition, nothing else after it
-						}//relational operator found
-					}
-					else
-					{
-						printf("no matching column in table to select for deletion\n");
-						rc = INVALID_COLUMN_NAME;
-						cur->tok_value = INVALID;
-					}
-				}//tokens after where found
-				else
-				{
-					printf("improper use of the keyword 'where'. a clause must follow\n");
-					rc = INVALID_WHERE_CALUSE_IN_DELETE;
-					cur->tok_value = INVALID;
-				}
-			}//where keyword found
-			else if(cur->tok_value == EOC)
-			{
-				char str[MAX_IDENT_LEN + 1];
-				strcpy(str, tab_entry->table_name); //get table name
-				strcat(str, ".tab");
-				FILE *fhandle = NULL;
-
-				if ((fhandle = fopen(str, "rbc")) == NULL)
-					rc = FILE_OPEN_ERROR;
-				else
-				{
-					_fstat(_fileno(fhandle), &file_stat);
-					header = (table_file_header*)calloc(1, file_stat.st_size);
-					if(!header)
-						rc = MEMORY_ERROR;
-					else
-					{
-						//printf("open for read ok\n");
-
-						fread(header, sizeof(table_file_header), 1, fhandle);
-						fflush(fhandle);
-						fclose(fhandle);
-						int rows_to_delete = header->num_records;
-
-						//printf("file size is %d\n", header->file_size);
-						//printf("record size is %d\n", header->record_size);
-						//printf("num_recs is %d\n", header->num_records);
-						//printf("rec offset is at %d\n", header->record_offset);
-
-						header->num_records = 0; // update to zero records
-						header->file_size = sizeof(table_file_header);
-
-						//printf("new file size is %d\n", header->file_size);
-						//printf("new num_recs is %d\n", header->num_records);
-						
-						if ((fhandle = fopen(str, "wbc")) == NULL)
-							rc = FILE_OPEN_ERROR;
+								printf("invalid relational operator found. only <, =, and > are supported\n");
+								rc = INVALID_REL_COMP_IN_WHERE_IN_DELETE;
+								cur->tok_value = INVALID;
+							}
+						}//column in where found in table
 						else
 						{
-							fwrite(header, sizeof(table_file_header), 1, fhandle);
-							fflush(fhandle);
-							fclose(fhandle);
-							printf("%d rows deleted.\n", rows_to_delete);
+							printf("no matching column in table from where clause to select for deletion\n");
+							rc = INVALID_COLUMN_NAME;
+							cur->tok_value = INVALID;
 						}
-					}//not memory error	
-				}//file open OK
-			}//delete all rows (no where clause)
-			else 
-			{
-				printf("invalid delete statement\n");
-				rc = INVALID_DELETE_STATEMENT;
-				cur->tok_value = INVALID;
-			}//invalid delete stmt
+					}//tokens after where found
+					else
+					{
+						printf("improper use of the keyword 'where'. a clause must follow\n");
+						rc = INVALID_WHERE_CLAUSE_IN_DELETE;
+						cur->tok_value = INVALID;
+					}
+				}//where keyword found
+				else
+				{
+					printf("invalid delete statement after table name\n");
+					rc = INVALID_DELETE_STATEMENT;
+					cur->tok_value = INVALID;
+				}
+			}
 		}//end else for table exists
 	}//end else for identifier found
+
+	if(!rc)
+	{
+		if(has_where)
+		{
+			int to_delete = checkRowsForDelete(tab_entry, rel_op, cur, where_col_no);
+			switch(to_delete)
+			{
+				case -1:
+					rc = FILE_OPEN_ERROR;
+					break;
+				case -2:
+					rc = MEMORY_ERROR;
+					break;
+				case -3:
+					rc = DBFILE_CORRUPTION;
+					break;
+				case 0:
+					rc = NO_MATCHING_ROWS_TO_DELETE;
+					cur->tok_value = INVALID;
+					break;
+			}
+			//printf("number rows matching to delete is %d\n", to_delete);
+		}
+		else
+		{
+			int delete_item = deleteHelper(tab_entry->table_name);
+			switch(delete_item)
+			{
+				case -1:
+					rc = FILE_OPEN_ERROR;
+					break;
+				case -2:
+					rc = MEMORY_ERROR;
+					break;
+			}
+		}
+	}
 
 	return rc;
 }
@@ -2136,7 +2058,7 @@ int sem_update(token_list *t_list)
 															{
 																case -2: //null in where clause but column cannot be null'ed	
 																	printf("column in where cannot be set to null, so no matching rows to update\n");
-																	rc = MISMATCH_TYPE_IN_WHERE_OF_UPDATE;
+																	rc = UPDATE_NOT_NULL_CONSTRAINT;
 																	break;
 																case -1:
 																	printf("type in where statement does not match column type\n");
@@ -2273,7 +2195,6 @@ int sem_update(token_list *t_list)
 
 	return rc;
 }
-
 
 token_list * insertHelper(int tok_class, int tok_value, char* tok_string)
 {
@@ -2716,7 +2637,6 @@ int checkRowsForValue(tpd_entry *tab_entry, int col_to_update, token_list *updat
 			}//end file size ok
 		}//end not memory error
 	}//end not file open error
-
 }//checkRowsForValue()
 
 int updateHelper(tpd_entry *tab_entry, int col_to_update, token_list *update_token)
@@ -2900,5 +2820,281 @@ int updateHelper(tpd_entry *tab_entry, int col_to_update, token_list *update_tok
 			return 1;
 		}
 	}
-
 }//updateHelper()
+
+int deleteHelper(char *table_name)
+{
+	char str[MAX_IDENT_LEN + 1];
+	struct _stat file_stat;
+	table_file_header *header = NULL;
+	int rows_to_delete = 0;
+
+	strcpy(str,table_name); //get table name
+	strcat(str, ".tab");
+	FILE *fhandle = NULL;
+
+	if ((fhandle = fopen(str, "rbc")) == NULL)
+		return -2;
+	else
+	{
+		_fstat(_fileno(fhandle), &file_stat);
+		header = (table_file_header*)calloc(1, file_stat.st_size);
+		if(!header)
+			return -1;
+		else
+		{
+			fread(header, sizeof(table_file_header), 1, fhandle);
+			fflush(fhandle);
+			fclose(fhandle);
+			rows_to_delete = header->num_records;
+
+			header->num_records = 0; // update to zero records
+			header->file_size = sizeof(table_file_header);
+			
+			if ((fhandle = fopen(str, "wbc")) == NULL)
+				return -2;
+			else
+			{
+				fwrite(header, sizeof(table_file_header), 1, fhandle);
+				fflush(fhandle);
+				fclose(fhandle);
+				printf("%d rows deleted.\n", rows_to_delete);
+			}
+		}//not memory error	
+	}//file open OK
+
+	return rows_to_delete;
+}//deleteHelper()
+
+int checkRowsForDelete(tpd_entry *tab_entry, int rel_op, token_list *where_token, int c_num)
+{
+	char str[MAX_IDENT_LEN];
+	struct _stat file_stat;
+	table_file_header *head = NULL;
+	unsigned char *buffer, *temp;
+
+	strcpy(str, tab_entry->table_name);
+	strcat(str, ".tab");
+
+	FILE *fhandle = NULL;
+	if ((fhandle = fopen(str, "rbc")) == NULL)
+	{
+		printf("there was an error opening the file %s\n",str);
+		return -1;
+	}//end file open error
+	else
+	{
+		_fstat(_fileno(fhandle), &file_stat);
+		head = (table_file_header*)calloc(1, file_stat.st_size);
+		if (!head)
+		{
+			printf("there was a memory error...\n");
+			return -2;
+		}//end memory error
+		else
+		{
+			fread(head, file_stat.st_size, 1, fhandle);
+			fflush(fhandle);
+			if (head->file_size != file_stat.st_size)
+			{
+				//printf("ptr file_size: %d\n", recs->file_size);
+				printf("read file size and calculated size does not match. db file is corrupted. exiting...\n");
+				return -3;
+			}
+			else
+			{
+				int rows_tb_size = head->file_size - head->record_offset;
+				int record_size = head->record_size;
+				int offset = head->record_offset;
+				int num_records = head->num_records;
+
+				fseek(fhandle, offset, SEEK_SET);
+				buffer = (unsigned char*)calloc(1, record_size * num_records);
+
+				if(!buffer)
+					return -2;
+				else
+				{
+					fread(buffer, record_size * num_records, 1, fhandle);
+					fflush(fhandle);
+					cd_entry *col = NULL;
+					int i = 0, j = 0, rec_cnt = 0, row = 1, matches = 0;
+
+					int last_record = rows_tb_size - record_size;
+					printf("last_record offset at %d    and rec_size is %d\n", last_record, record_size);
+					printf("rows_tb_size is %d\n", rows_tb_size);
+
+					
+					temp = (unsigned char*)calloc(1, record_size);
+					
+					while(i < rows_tb_size)
+					{
+						for (int a = 0; a < record_size; a++)
+						{
+							temp[a] = buffer[last_record + a];
+						}
+						//printf("at row number: %d\n", row);
+						j = i;
+						bool to_delete = false;
+						int k, col_offset = 0;
+						for (k = 0, col = (cd_entry*)((char*)tab_entry + tab_entry->cd_offset);
+							k < tab_entry->num_columns; k++, col++)
+						{	//while there are columns in tpd
+							if(col->col_id != c_num)
+							{
+								i += col->col_len + 1;
+								col_offset += col->col_len + 1;
+							}
+							else
+							{
+								//printf("col_offset is %d\n", col_offset);
+								int nullable = buffer[i];
+								int b = i + 1;
+								if(where_token->tok_value == K_NULL)
+								{
+									//printf("in here\n");
+									int zero = 0;
+									if(memcmp(&buffer[i], &zero, 1) == 0)
+									{
+										matches++;
+										to_delete = true;
+									}
+								}
+								else
+								{
+									if(col->col_type == T_INT)
+									{
+										int elem;
+										if(!nullable)
+										{
+											elem = -99; //for null
+										}//elem is null
+										else
+										{
+											char *int_b;
+											int_b = (char*)calloc(1, sizeof(int));
+											for (int a = 0; a < sizeof(int); a++)
+											{
+												int_b[a] = buffer[b + a];
+											}
+											memcpy(&elem, int_b, sizeof(int));
+
+											switch(rel_op)
+											{
+												case S_EQUAL:
+													if(atoi(where_token->tok_string) == elem)
+													{
+														matches++;
+														//printf("         match cnt %d\n", matches);
+														to_delete = true;
+													}
+													break;
+												case S_LESS:
+													if(elem < atoi(where_token->tok_string))
+													{
+														matches++;
+														//printf("         match cnt %d\n", matches);
+														to_delete = true;
+													}
+													break;
+												case S_GREATER:
+													if(elem > atoi(where_token->tok_string))
+													{
+														matches++;
+														//printf("         match cnt %d\n", matches);
+														to_delete = true;
+													}
+													break;
+											}
+										}//elem is not null
+										//printf("  element is %d\n", elem);
+										
+									}
+									else if (col->col_type == T_CHAR)
+									{
+										char *elem;
+										if(!nullable)
+										{
+											elem = NULL;
+										}//elem is null
+										else
+										{
+											int len = col->col_len + 1;
+											elem = (char*)calloc(1, len);
+											for (int a = 0; a < len; a++)
+											{
+												elem[a] = buffer[b + a];
+											}
+											elem[len - 1] = '\0';
+
+											switch(rel_op)
+											{
+												case S_EQUAL:
+													if (memcmp(where_token->tok_string, elem, col->col_len) == 0)
+													{
+														matches++;
+														//printf("         match cnt %d\n", matches);
+														to_delete = true;
+													}
+													break;
+												case S_LESS:
+													if (memcmp(where_token->tok_string, elem, col->col_len) < 0)
+													{
+														matches++;
+														//printf("         match cnt %d\n", matches);
+														to_delete = true;
+													}
+													break;
+												case S_GREATER:
+													if (memcmp(where_token->tok_string, elem, col->col_len) > 0)
+													{
+														matches++;
+														//printf("         match cnt %d\n", matches);
+														to_delete = true;
+													}
+													break;
+											}										
+										}
+										//printf("  element is %s\n", elem);
+									}
+								}//not testing for null in where clause
+							}//column id matches
+						}//end for
+
+						if(to_delete)
+						{
+							for (int a = 0; a < record_size; a++)
+							{
+								buffer[j+a] = temp[a];
+							}
+
+							head->num_records--;
+							head->file_size -= record_size;
+							last_record -= record_size; //move last_record to the last previous record before it
+						}
+						row++;
+						rec_cnt += record_size; //jump to next record
+						i = rec_cnt;
+					}//end while
+
+					if ((fhandle = fopen(str, "wbc")) == NULL)
+					{
+						return -1;
+					}//end file open error
+					else
+					{
+						fwrite(head, sizeof(table_file_header), 1, fhandle);
+						fwrite(buffer, record_size * head->num_records, 1, fhandle);
+						fflush(fhandle);
+						fclose(fhandle);
+						printf("%d rows deleted.\n", matches);
+					}
+
+					//printf("new num_rec is %d\n",head->num_records);
+
+					return matches;
+				}//end buffer else
+			}//end file size ok
+		}//end not memory error
+	}//end not file open error
+}//checkRowsForDelete()

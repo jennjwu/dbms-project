@@ -11,3 +11,4 @@ Functions:
 * drop table tablename
 * select * from tablename
 * update tablename set colname = datavalue [where colname {<>=} datavalue]
+* delete from tablename [where colname {<>=} datavalue]

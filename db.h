@@ -186,11 +186,12 @@ typedef enum error_return_codes
 	INSERT_INVALID_TYPE,				// -373
 	
 	/* errors for delete */
-	INVALID_DELETE_STATEMENT = -365,	// -365
-	INVALID_WHERE_CALUSE_IN_DELETE,		// -364
-	INVALID_REL_COMP_IN_WHERE_IN_DELETE,	//-363
-	WHERE_VAL_COLTYPE_MISMATCH_IN_DELETE, 	//-362
-	NO_ROWS_TO_DELETE,						// -361
+	INVALID_DELETE_STATEMENT = -365,		// -365
+	INVALID_WHERE_CLAUSE_IN_DELETE,			// -364
+	INVALID_REL_COMP_IN_WHERE_IN_DELETE,	// -363
+	INVALID_TYPE_IN_WHERE_OF_DELETE,		// -362
+	MISMATCH_TYPE_IN_WHERE_OF_DELETE,		// -361
+	NO_MATCHING_ROWS_TO_DELETE,				// -360
 	
 	/* errors for update */
 	INVALID_UPDATE_STATEMENT = -350, 		// -350
@@ -240,7 +241,8 @@ int checkCharLen(tpd_entry *tab_entry, char *tok_string, int c_num);
 int checkIntSize(char *tok_string);
 int checkRowsForValue(tpd_entry *tab_entry, int col_to_update, token_list *update_token, int rel_op, token_list *where_token, int c_num);
 int updateHelper(tpd_entry *tab_entry, int col_to_update, token_list *update_token);
-/*int updateHelper(tpd_entry *tab_entry, int col_to_update, token_list *update_token, int where_col, char *where_check);*/
+int deleteHelper(char *table_name);
+int checkRowsForDelete(tpd_entry *tab_entry, int rel_op, token_list *where_token, int c_num);
 
 /*
 	Keep a global list of tpd - in real life, this will be stored

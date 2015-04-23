@@ -211,6 +211,7 @@ typedef enum error_return_codes
 	INVALID_SELECT_STATEMENT = -335,   	// -335
 	INVALID_WHERE_CLAUSE_IN_SELECT,		// -334
 	INVALID_ORDER_BY_CLAUSE_IN_SELECT,	// -332
+	INVALID_SELECT_BY_COLUMN_STATEMENT,	// -331
 	
 	/* other errors */
 	FILE_OPEN_ERROR = -299,		// -299
@@ -230,6 +231,9 @@ int sem_insert(token_list *t_list);
 int sem_select(token_list *t_list);
 int sem_delete(token_list *t_list);
 int sem_update(token_list *t_list);
+int select_aggregate(token_list *t_list);
+int select_by_column(token_list *t_list);
+int select_where_parser(token_list *t_list);
 
 /* helper functions */
 token_list* insertHelper(int t_class, int t_value, char* t_string);
@@ -243,6 +247,10 @@ int checkRowsForValue(tpd_entry *tab_entry, int col_to_update, token_list *updat
 int updateHelper(tpd_entry *tab_entry, int col_to_update, token_list *update_token);
 int deleteHelper(char *table_name);
 int checkRowsForDelete(tpd_entry *tab_entry, int rel_op, token_list *where_token, int c_num);
+
+int select_aggregate(token_list *t_list);
+int select_by_column(token_list *t_list);
+int select_where_parser(token_list *t_list);
 
 /*
 	Keep a global list of tpd - in real life, this will be stored

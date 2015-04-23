@@ -1587,12 +1587,14 @@ int sem_select(token_list *t_list)
 		else if (cur->tok_class == function_name)
 		{
 			printf("found aggregate func: %s\n", cur->tok_string);
-			printf("aggregation function not yet implemented");
+			//printf("aggregation function not yet implemented");
+			rc = select_aggregate(cur);
 		}//aggregate function in select
 		else if (cur->tok_class == identifier)
 		{
 			printf("cur: %s\n", cur->tok_string);
-			printf("column select not yet implemented");
+			//printf("column select not yet implemented");
+			rc = select_by_column(cur);
 		}//found identifier in select
 		else
 		{	//if not table name or not aggregate function name
@@ -1777,6 +1779,82 @@ int sem_select(token_list *t_list)
 	return rc;
 }
 
+int select_aggregate(token_list *t_list)
+{
+	int rc = 0;
+	printf("select stmt with aggregate found\n");
+
+	return 1;
+}
+
+int select_by_column(token_list *t_list)
+{
+	token_list *cur = t_list;
+	//token_list *columns = NULL;
+	int rc = 0;
+	printf("select stmt by columns found\n");
+
+	while(cur->tok_value != K_FROM)
+	{
+		if(cur->tok_value == EOC)
+		{
+			printf("Invalid select statement\n");
+			rc = INVALID_SELECT_BY_COLUMN_STATEMENT;
+			cur->tok_value = INVALID;
+		}
+		else
+		{
+			printf("cur column is %s\n", cur->tok_string);
+			if(cur->next->tok_value == S_COMMA)
+				cur = cur->next->next;
+			else
+				break;
+			//check that column exists in the table
+		}
+	}
+	
+	if(!rc)
+	{
+		if (cur->next->tok_value == K_FROM)
+		{
+			printf("got from\n");
+			cur = cur->next->next;
+		}
+		else
+		{
+			printf("Invalid select statement\n");
+			rc = INVALID_SELECT_BY_COLUMN_STATEMENT;
+			cur->tok_value = INVALID;
+		}
+	}
+	//printf("cur column is %s\n", cur->tok_string);
+	/*if (!rc)
+	{	//parse from 'from' keyword
+		if(cur->tok_value == K_FROM)
+		{
+
+		}
+		else
+		{
+			rc =
+		}
+	}*/
+
+
+
+
+
+	return rc;
+}
+
+int select_where_parser(token_list *t_list)
+{
+	int rc = 0;
+	printf("select stmt with where clause found\n");
+
+	return 1;
+}
+
 int sem_delete(token_list *t_list)
 {
 	int rc = 0;
@@ -1905,6 +1983,7 @@ int sem_delete(token_list *t_list)
 					rc = DBFILE_CORRUPTION;
 					break;
 				case 0:
+					printf("no matching rows to delete\n");
 					rc = NO_MATCHING_ROWS_TO_DELETE;
 					cur->tok_value = INVALID;
 					break;
@@ -2921,18 +3000,15 @@ int checkRowsForDelete(tpd_entry *tab_entry, int rel_op, token_list *where_token
 					int i = 0, j = 0, rec_cnt = 0, row = 1, matches = 0;
 
 					int last_record = rows_tb_size - record_size;
-					printf("last_record offset at %d    and rec_size is %d\n", last_record, record_size);
-					printf("rows_tb_size is %d\n", rows_tb_size);
+					//printf("last_record offset at %d    and rec_size is %d\n", last_record, record_size);
+					//printf("rows_tb_size is %d\n", rows_tb_size);
 
 					
 					temp = (unsigned char*)calloc(1, record_size);
 					
 					while(i < rows_tb_size)
 					{
-						for (int a = 0; a < record_size; a++)
-						{
-							temp[a] = buffer[last_record + a];
-						}
+						
 						//printf("at row number: %d\n", row);
 						j = i;
 						bool to_delete = false;
@@ -3063,6 +3139,18 @@ int checkRowsForDelete(tpd_entry *tab_entry, int rel_op, token_list *where_token
 
 						if(to_delete)
 						{
+							if(memcmp(&temp[0], &buffer[i],1) == 0)
+							{
+								last_record -= record_size; //move it backward one more row
+							}
+							
+							for (int a = 0; a < record_size; a++)
+							{
+								temp[a] = buffer[last_record + a];
+							}
+						
+
+							//do the replacement
 							for (int a = 0; a < record_size; a++)
 							{
 								buffer[j+a] = temp[a];
@@ -3075,23 +3163,26 @@ int checkRowsForDelete(tpd_entry *tab_entry, int rel_op, token_list *where_token
 						row++;
 						rec_cnt += record_size; //jump to next record
 						i = rec_cnt;
+
 					}//end while
 
-					if ((fhandle = fopen(str, "wbc")) == NULL)
+					if(matches > 0)
 					{
-						return -1;
-					}//end file open error
-					else
-					{
-						fwrite(head, sizeof(table_file_header), 1, fhandle);
-						fwrite(buffer, record_size * head->num_records, 1, fhandle);
-						fflush(fhandle);
-						fclose(fhandle);
-						printf("%d rows deleted.\n", matches);
+						if ((fhandle = fopen(str, "wbc")) == NULL)
+						{
+							return -1;
+						}//end file open error
+						else
+						{
+							fwrite(head, sizeof(table_file_header), 1, fhandle);
+							fwrite(buffer, record_size * head->num_records, 1, fhandle);
+							fflush(fhandle);
+							fclose(fhandle);
+							printf("%d rows deleted.\n", matches);
+						}
 					}
 
 					//printf("new num_rec is %d\n",head->num_records);
-
 					return matches;
 				}//end buffer else
 			}//end file size ok

@@ -248,9 +248,10 @@ int updateHelper(tpd_entry *tab_entry, int col_to_update, token_list *update_tok
 int deleteHelper(char *table_name);
 int checkRowsForDelete(tpd_entry *tab_entry, int rel_op, token_list *where_token, int c_num);
 
-int select_aggregate(token_list *t_list);
-int select_by_column(token_list *t_list);
-int select_where_parser(token_list *t_list);
+char* getOuterByCol(tpd_entry *tab_entry, int colArray[], int num_col_to_fetch);
+char* getColHeadersByCol(tpd_entry *tab_entry, int colArray[], int num_col_to_fetch);
+int print_selectAll(tpd_entry *tab_entry);
+int print_select(tpd_entry *tab_entry, int colArray[], int cols_to_print);
 
 /*
 	Keep a global list of tpd - in real life, this will be stored

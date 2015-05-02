@@ -212,6 +212,9 @@ typedef enum error_return_codes
 	INVALID_WHERE_CLAUSE_IN_SELECT,		// -334
 	INVALID_ORDER_BY_CLAUSE_IN_SELECT,	// -332
 	INVALID_SELECT_BY_COLUMN_STATEMENT,	// -331
+	INVALID_SYNTAX_FOR_AGGREGATE,		// -330
+	INVALID_COL_FOR_AGGREGATE,			// -329
+	AGGREGATE_COL_TYPE_MISMATCH,		// -328
 	
 	/* other errors */
 	FILE_OPEN_ERROR = -299,		// -299
@@ -252,6 +255,10 @@ char* getOuterByCol(tpd_entry *tab_entry, int colArray[], int num_col_to_fetch);
 char* getColHeadersByCol(tpd_entry *tab_entry, int colArray[], int num_col_to_fetch);
 int print_selectAll(tpd_entry *tab_entry);
 int print_select(tpd_entry *tab_entry, int colArray[], int cols_to_print);
+int select_helper(tpd_entry *tab_entry);
+int select_helper_math(tpd_entry *tab_entry, int col_to_aggregate);
+int cnt_not_null(tpd_entry *tab_entry, int col_to_cnt);
+
 
 /*
 	Keep a global list of tpd - in real life, this will be stored

@@ -1596,17 +1596,11 @@ int sem_select(token_list *t_list)
 		}//select * stmt
 		else if (cur->tok_class == function_name)
 		{
-			printf("found aggregate func: %s\n", cur->tok_string);
-			//printf("aggregation function not yet implemented");
 			rc = select_aggregate(cur);
-			return 125; //to not do anything yet
 		}//aggregate function in select
 		else if (cur->tok_class == identifier)
 		{
-			//printf("cur: %s\n", cur->tok_string);
-			//printf("column select not yet implemented");
 			rc = select_by_column(cur);
-			return 125; //to not do anything yet
 		}//found identifier in select
 		else
 		{	//if not table name or not aggregate function name
@@ -1614,12 +1608,6 @@ int sem_select(token_list *t_list)
 			cur->tok_value = INVALID;
 		}
 	}// *, column names (identifier), or aggregate func
-
-	if(!rc)
-	{	//not select *
-		
-
-	}//end selection process
 	
 	return rc;
 }
@@ -1984,10 +1972,315 @@ int print_select(tpd_entry *tab_entry, int colArray[], int cols_to_print)
 
 int select_aggregate(token_list *t_list)
 {
+	token_list *cur = t_list;
+	token_list *agg_col = t_list;
+	token_list *aggregate_func = t_list;
+	tpd_entry *tab_entry = NULL;
 	int rc = 0;
-	printf("select stmt with aggregate found\n");
 
-	return 1;
+	//move cur past column names to get table name
+	while(cur->tok_value != K_FROM && cur->tok_value != EOC){
+		cur = cur->next;
+	};
+	if(cur->tok_value == K_FROM)
+		cur = cur->next; //move past from keyword
+
+	if(cur->tok_value != EOC){
+		if( (tab_entry = get_tpd_from_list(cur->tok_string))== NULL)
+		{
+			printf("cannot select from nonexistent table\n");
+			rc = TABLE_NOT_EXIST;
+			cur->tok_value = INVALID;
+		}
+		else{
+			//cur ptr is at tablename
+			//printf("found aggregate func: %s\n", agg_col->tok_string);
+			aggregate_func = agg_col;
+			if( (agg_col->tok_value == F_SUM) || (agg_col->tok_value == F_AVG) )
+			{
+				if (agg_col->next->tok_value != S_LEFT_PAREN)
+				{
+					printf("invalid syntax for aggregate function. missing L parantheses\n");
+					rc = INVALID_SYNTAX_FOR_AGGREGATE;
+					agg_col->next->tok_value = INVALID;
+				}
+				else
+				{
+					agg_col = agg_col->next->next; //skip past L parentheses
+					if (agg_col->tok_class != identifier)
+					{
+						printf("%s function must operate on a column\n", aggregate_func->tok_string);
+						rc = INVALID_COL_FOR_AGGREGATE;
+						agg_col->tok_value = INVALID;
+					}
+					else
+					{	
+						int column_number = columnFinder(tab_entry, agg_col->tok_string);
+						if(column_number > -1){
+							int type_match = checkColType(tab_entry, agg_col->tok_string, INT_LITERAL, column_number);
+							if(type_match == -1)
+							{ //not a type match
+								printf("%s function must operate on a integer column\n", aggregate_func->tok_string);
+									rc = AGGREGATE_COL_TYPE_MISMATCH;
+									agg_col->tok_value = INVALID;
+							}
+							else{
+								char col_name[MAX_IDENT_LEN];
+								strcpy(col_name, agg_col->tok_string);
+								if(agg_col->next->tok_value != S_RIGHT_PAREN){
+									printf("invalid syntax for aggregate function. missing R parantheses\n");
+									rc = INVALID_SYNTAX_FOR_AGGREGATE;
+									agg_col->next->tok_value = INVALID;
+								}
+								else{
+									//already checked for table - need to check for where
+									cur = cur->next;
+									if(cur->tok_value == EOC){
+										//printf("no where clause. get aggregate\n");
+										int sum = select_helper_math(tab_entry, column_number);
+										if(sum < 0){
+											switch(sum)
+											{
+												case -1: 
+													rc = FILE_OPEN_ERROR;
+													break;
+												case -2:
+													rc = MEMORY_ERROR;
+													break;
+												case -3:
+													rc = DBFILE_CORRUPTION;
+													break;
+											}
+											return rc;
+										}
+										else{
+											//figure out width of header
+											int str_len = strlen(col_name);
+											int width = 12;
+											if(str_len > 7){
+												width = str_len + 5;
+											}
+											
+											char *format = (char*)calloc(1, MAX_PRINT_LEN);
+											strcpy(format,"+");
+											for (int z = 0; z < width; z++){
+												strcat(format,"-");
+											}
+											strcat(format,"+");
+
+											int diff = width - (str_len + 5); //for header
+											int d = width - 12;	//for value
+											
+											//print first format line
+											printf("%s\n",format);
+
+											if(aggregate_func->tok_value == F_SUM){
+												//print sum
+												printf("|sum(%s)",col_name);
+												for (int y = 0; y < diff; y++){
+													printf(" ");
+												}
+												printf("|\n");
+												printf("%s\n",format);
+												printf("|%12d", sum);
+												for (int x = 0; x < d; x++)
+													printf(" ");
+												printf("|\n");
+												
+											}
+											else if(aggregate_func->tok_value == F_AVG){
+												int row_cnt = cnt_not_null(tab_entry, column_number);
+												if(row_cnt < 0){
+													switch(row_cnt)
+													{
+														case -1: 
+															rc = FILE_OPEN_ERROR;
+															break;
+														case -2:
+															rc = MEMORY_ERROR;
+															break;
+														case -3:
+															rc = DBFILE_CORRUPTION;
+															break;
+													}
+													return rc;
+												}
+												else if (row_cnt == 0){
+													printf("|avg(%s)",col_name);
+													for (int y = 0; y < diff; y++){
+														printf(" ");
+													}
+													printf("|\n");
+													printf("%s\n",format);
+													printf("|%12d", 0);
+													for (int x = 0; x < d; x++)
+														printf(" ");
+													printf("|\n");
+
+												}
+												else{
+													float avg = sum / row_cnt;
+													printf("|avg(%s)",col_name);
+													for (int y = 0; y < diff; y++){
+														printf(" ");
+													}
+													printf("|\n");
+													printf("%s\n",format);
+													printf("|%12.1f", avg);
+													for (int x = 0; x < d; x++)
+														printf(" ");
+													printf("|\n");
+												}
+											}
+											printf("%s\n",format);
+											printf("1 rows selected.\n");
+										}
+									}
+									else if (cur->tok_value == K_WHERE){
+										//add here
+										printf("where found. keep going.......\n");
+									}
+									else {
+										printf("invalid select statement\n");
+										rc = INVALID_SELECT_STATEMENT;
+										cur->tok_value = INVALID;
+									}
+								}
+							}
+						}//column found
+						else{
+							printf("column not found in table %s\n", tab_entry->table_name);
+							rc = COLUMN_NOT_EXIST;
+							agg_col->tok_value = INVALID;
+						}
+					}//aggregate is not on a column - error
+				}//has L parentheses
+			}//for sum and avg
+			else
+			{	//function is count
+				if (agg_col->next->tok_value != S_LEFT_PAREN)
+				{
+					printf("invalid syntax for aggregate function. missing L parantheses\n");
+					rc = INVALID_SYNTAX_FOR_AGGREGATE;
+					agg_col->next->tok_value = INVALID;
+				}
+				else
+				{
+					agg_col = agg_col->next->next; //skip past L parentheses
+					if(agg_col->tok_value == S_STAR){
+						//check if there is a where clause
+						if(agg_col->next->tok_value != S_RIGHT_PAREN){
+							printf("invalid select statement. missing R parantheses\n");
+							rc = INVALID_SELECT_STATEMENT;
+							agg_col->next->tok_value = INVALID;
+						}
+						else{
+							if(cur->next->tok_value == EOC){
+								int rows_cnt = select_helper(tab_entry);
+								printf("+--------+\n");
+								printf("|count(*)|\n");
+								printf("+--------+\n");
+								printf("|%8d|\n", rows_cnt);
+								printf("+--------+\n");
+								printf("1 rows selected.\n");
+							}
+							else if (cur->next->tok_value == K_WHERE){
+								printf("where keyword found...continue to parse\n");
+							}//has where clause
+							else if (cur->next->tok_value == K_ORDER){
+								cur = cur->next;
+								if(cur->next->tok_value == K_BY){
+									//order by stmt does nothing here bc count will aggregate it all
+									printf("order by clause is ignored in count() aggregate function\n");
+									int rows_cnt = select_helper(tab_entry);
+									printf("+--------+\n");
+									printf("|count(*)|\n");
+									printf("+--------+\n");
+									printf("|%8d|\n", rows_cnt);
+									printf("+--------+\n");
+									printf("1 rows selected.\n");
+								}
+								else{
+									printf("invalid select statement. unexpected symbol or keyword\n");
+									rc = INVALID_SELECT_STATEMENT;
+									cur->tok_value = INVALID;
+								}
+							}//order by clause with count() func
+							else {
+								printf("invalid select statement. unexpected symbol or keyword\n");
+								rc = INVALID_SELECT_STATEMENT;
+								cur->tok_value = INVALID;
+							}
+						}
+					}
+					else if(agg_col->tok_class == identifier){
+						if(agg_col->next->tok_value != S_RIGHT_PAREN){
+							printf("invalid select statement. missing R parantheses\n");
+							rc = INVALID_SELECT_STATEMENT;
+							agg_col->next->tok_value = INVALID;
+						}
+						else{
+							char col_name[MAX_IDENT_LEN];
+							strcpy(col_name, agg_col->tok_string);
+							int col_found = columnFinder(tab_entry, agg_col->tok_string);
+							if(col_found > -1)
+							{
+								int cnt = cnt_not_null(tab_entry, col_found);
+								//figure out width of header
+								int str_len = strlen(col_name);
+								int width = 12;
+								if(str_len > 5){
+									width = str_len + 7;
+								}
+								
+								char *format = (char*)calloc(1, MAX_PRINT_LEN);
+								strcpy(format,"+");
+								for (int z = 0; z < width; z++){
+									strcat(format,"-");
+								}
+								strcat(format,"+");
+
+								int diff = width - (str_len + 7); //for header
+								int d = width - 12;	//for value
+								
+								//print first format line
+								printf("%s\n",format);
+								printf("|count(%s)",col_name);
+								for (int y = 0; y < diff; y++){
+									printf(" ");
+								}
+								printf("|\n");
+								printf("%s\n",format);
+								printf("|%12d", cnt);
+								for (int x = 0; x < d; x++)
+									printf(" ");
+								printf("|\n");
+								printf("%s\n",format);
+								printf("1 rows selected.\n");
+							}//count w/o where clause
+							else{
+								printf("column not found in table %s\n", tab_entry->table_name);
+								rc = COLUMN_NOT_EXIST;
+								agg_col->tok_value = INVALID;
+							}
+						}
+					}
+					else{
+						printf("invalid select statement\n");
+						rc = INVALID_SELECT_STATEMENT;
+						agg_col->tok_value = INVALID;
+					}
+				}
+			}
+		}
+	}
+	else{
+		printf("invalid select statement. missing table name\n");
+		rc = INVALID_SELECT_STATEMENT;
+		cur->tok_value = INVALID;
+	}
+	
+	return rc;
 }
 
 int select_by_column(token_list *t_list)
@@ -1999,52 +2292,60 @@ int select_by_column(token_list *t_list)
 	int i = 0; //array index counter for colArray
 	int rc = 0;
 	struct _stat file_stat;
-	//printf("select stmt by columns found\n");
-
+	
 	//move cur past column names to get table name
-	do{
+	while(cur->tok_value != K_FROM && cur->tok_value != EOC){
 		cur = cur->next;
-	}while(cur->tok_value != K_FROM);
-	cur = cur->next; //move past from keyword
+	};
+	if(cur->tok_value == K_FROM)
+		cur = cur->next; //move past from keyword
 
-	if( (tab_entry = get_tpd_from_list(cur->tok_string))== NULL)
-	{
-		printf("cannot select from nonexistent table\n");
-		rc = TABLE_NOT_EXIST;
+	if(cur->tok_value != EOC){
+		if( (tab_entry = get_tpd_from_list(cur->tok_string))== NULL)
+		{
+			printf("cannot select from nonexistent table\n");
+			rc = TABLE_NOT_EXIST;
+		}
+		else{
+			//cur ptr is at tablename
+			while(columns->tok_value != K_FROM)
+			{
+				if(columns->tok_value == EOC)
+				{
+					printf("Invalid select statement\n");
+					rc = INVALID_SELECT_BY_COLUMN_STATEMENT;
+					columns->tok_value = INVALID;
+				}
+				else
+				{
+					//printf("cur column is %s\n", columns->tok_string);
+					int col_found = columnFinder(tab_entry, columns->tok_string);
+					if(col_found > -1)
+					{
+						//printf("column found with id: %d\n", col_found);
+						colArray[i] = col_found; //add to array of column ids
+						i++;
+						if(columns->next->tok_value == S_COMMA)
+							columns = columns->next->next;
+						else
+							break;
+					}
+					else{
+						printf("column not found in table %s\n", tab_entry->table_name);
+						rc = COLUMN_NOT_EXIST;
+						columns->tok_value = INVALID;
+						break;
+					}
+				}
+			}//end while for columns
+		}
 	}
 	else{
-		//cur ptr is at tablename
-		while(columns->tok_value != K_FROM)
-		{
-			if(columns->tok_value == EOC)
-			{
-				printf("Invalid select statement\n");
-				rc = INVALID_SELECT_BY_COLUMN_STATEMENT;
-				columns->tok_value = INVALID;
-			}
-			else
-			{
-				//printf("cur column is %s\n", columns->tok_string);
-				int col_found = columnFinder(tab_entry, columns->tok_string);
-				if(col_found > -1)
-				{
-					//printf("column found with id: %d\n", col_found);
-					colArray[i] = col_found; //add to array of column ids
-					i++;
-					if(columns->next->tok_value == S_COMMA)
-						columns = columns->next->next;
-					else
-						break;
-				}
-				else{
-					printf("column not found in table %s\n", tab_entry->table_name);
-					rc = COLUMN_NOT_EXIST;
-					columns->tok_value = INVALID;
-					break;
-				}
-			}
-		}//end while for columns
+		printf("invalid select statement. missing table name\n");
+		rc = INVALID_SELECT_STATEMENT;
+		cur->tok_value = INVALID;
 	}
+		
 	
 	if(!rc)
 	{
@@ -2080,6 +2381,226 @@ int select_by_column(token_list *t_list)
 	}
 
 	return rc;
+}
+
+int select_helper(tpd_entry *tab_entry)
+{
+	char str[MAX_IDENT_LEN];
+	struct _stat file_stat;
+	table_file_header *head = NULL;
+	
+	strcpy(str, tab_entry->table_name);
+	strcat(str, ".tab");
+
+	FILE *fhandle = NULL;
+	if ((fhandle = fopen(str, "rbc")) == NULL)
+	{
+		printf("there was an error opening the file %s\n",str);
+		return -1;
+	}//end file open error
+	else
+	{
+		_fstat(_fileno(fhandle), &file_stat);
+		head = (table_file_header*)calloc(1, file_stat.st_size);
+		if (!head)
+		{
+			printf("there was a memory error...\n");
+			return -2;
+		}//end memory error
+		else
+		{
+			fread(head, file_stat.st_size, 1, fhandle);
+			if (head->file_size != file_stat.st_size)
+			{
+				//printf("ptr file_size: %d\n", recs->file_size);
+				printf("read file size and calculated size does not match. db file is corrupted. exiting...\n");
+				return -3;
+			}
+			else
+			{
+				int num_records = head->num_records;
+				return num_records;
+			}
+		}
+	}
+}
+
+int select_helper_math(tpd_entry *tab_entry, int col_to_aggregate)
+{
+	char str[MAX_IDENT_LEN];
+	struct _stat file_stat;
+	table_file_header *recs = NULL;
+	
+	strcpy(str, tab_entry->table_name);
+	strcat(str, ".tab");
+
+	FILE *fhandle = NULL;
+	if ((fhandle = fopen(str, "rbc")) == NULL)
+	{
+		printf("there was an error opening the file %s\n",str);
+		return -1;
+	}//end file open error
+	else
+	{
+		_fstat(_fileno(fhandle), &file_stat);
+		recs = (table_file_header*)calloc(1, file_stat.st_size);
+
+		if (!recs)
+		{
+			printf("there was a memory error...\n");
+			return -2;
+		}//end memory error
+		else
+		{
+			fread(recs, file_stat.st_size, 1, fhandle);
+			fflush(fhandle);
+			
+			if (recs->file_size != file_stat.st_size)
+			{
+				printf("ptr file_size: %d\n", recs->file_size);
+				printf("read file size and calculated size does not match. db file is corrupted. exiting...\n");
+				return -3;
+			}
+			else
+			{
+				int rows_tb_size = recs->file_size - recs->record_offset;
+				int record_size = recs->record_size;
+				int offset = recs->record_offset;
+				int num_records = recs->num_records;
+
+				unsigned char *buffer;
+				buffer = (unsigned char*)calloc(1, record_size * 100);
+				if (!buffer)
+					return -2;
+				else
+				{
+					fseek(fhandle, offset, SEEK_SET);
+					fread(buffer, rows_tb_size, 1, fhandle);
+
+					int i = 0, rec_cnt = 0, rows = 1;
+					int sum_to_return = 0;
+					while (i < rows_tb_size)
+					{
+						cd_entry  *col = NULL;
+						int k;
+
+						int row_col = i;
+						for (k = 0, col = (cd_entry*)((char*)tab_entry + tab_entry->cd_offset);
+							k < tab_entry->num_columns; k++, col++)
+						{	//while there are columns in tpd
+							unsigned char col_len = (unsigned char)buffer[row_col];
+							if(col_to_aggregate == col->col_id)
+							{
+								if ((int)col_len > 0)
+								{
+									int b = row_col + 1;
+									char *int_b;
+									int elem;
+									int_b = (char*)calloc(1, sizeof(int));
+									for (int a = 0; a < sizeof(int); a++)
+									{
+										int_b[a] = buffer[b + a];
+									}
+									memcpy(&elem, int_b, sizeof(int));
+									sum_to_return += elem;
+									//printf("%d\n", elem);
+									//printf("sum is now: %d\n", sum_to_return);
+								}
+								//skip nulls (don't add)
+							}
+							row_col += col->col_len+1; //move to next item/column
+						}
+						rec_cnt += record_size; //jump to next record
+						i = rec_cnt;
+					}//end while
+					fclose(fhandle);
+					return sum_to_return;
+				}//end not memory error
+			}//file is not corrupt
+		}//end not memory error
+	}//not file open error
+}
+
+int cnt_not_null(tpd_entry *tab_entry, int col_to_cnt)
+{
+	char str[MAX_IDENT_LEN];
+	struct _stat file_stat;
+	table_file_header *recs = NULL;
+	
+	strcpy(str, tab_entry->table_name);
+	strcat(str, ".tab");
+
+	FILE *fhandle = NULL;
+	if ((fhandle = fopen(str, "rbc")) == NULL)
+	{
+		printf("there was an error opening the file %s\n",str);
+		return -1;
+	}//end file open error
+	else
+	{
+		_fstat(_fileno(fhandle), &file_stat);
+		recs = (table_file_header*)calloc(1, file_stat.st_size);
+
+		if (!recs)
+		{
+			printf("there was a memory error...\n");
+			return -2;
+		}//end memory error
+		else
+		{
+			fread(recs, file_stat.st_size, 1, fhandle);
+			fflush(fhandle);
+			
+			if (recs->file_size != file_stat.st_size)
+			{
+				printf("ptr file_size: %d\n", recs->file_size);
+				printf("read file size and calculated size does not match. db file is corrupted. exiting...\n");
+				return -3;
+			}
+			else
+			{
+				int rows_tb_size = recs->file_size - recs->record_offset;
+				int record_size = recs->record_size;
+				int offset = recs->record_offset;
+				int num_records = recs->num_records;
+
+				unsigned char *buffer;
+				buffer = (unsigned char*)calloc(1, record_size * 100);
+				if (!buffer)
+					return -2;
+				else
+				{
+					fseek(fhandle, offset, SEEK_SET);
+					fread(buffer, rows_tb_size, 1, fhandle);
+
+					int i = 0, rec_cnt = 0, rows = 1;
+					int cnt_to_return = 0;
+					while (i < rows_tb_size)
+					{
+						cd_entry  *col = NULL;
+						int k;
+
+						int row_col = i;
+						for (k = 0, col = (cd_entry*)((char*)tab_entry + tab_entry->cd_offset);
+							k < tab_entry->num_columns; k++, col++)
+						{	//while there are columns in tpd
+							unsigned char col_len = (unsigned char)buffer[row_col];
+							if(col_to_cnt == col->col_id)
+							{
+								if ((int)col_len > 0)
+									cnt_to_return++;
+							}
+							row_col += col->col_len+1; //move to next item/column
+						}
+						rec_cnt += record_size; //jump to next record
+						i = rec_cnt;
+					}//end while
+					fclose(fhandle);
+					return cnt_to_return;
+				}//end not memory error
+			}//file is not corrupt
+		}//end not memory error
+	}//not file open error
 }
 
 int select_where_parser(token_list *t_list)

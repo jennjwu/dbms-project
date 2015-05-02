@@ -215,6 +215,7 @@ typedef enum error_return_codes
 	INVALID_SYNTAX_FOR_AGGREGATE,		// -330
 	INVALID_COL_FOR_AGGREGATE,			// -329
 	AGGREGATE_COL_TYPE_MISMATCH,		// -328
+	MISMATCH_TYPE_IN_WHERE_OF_SELECT,	// -327
 	
 	/* other errors */
 	FILE_OPEN_ERROR = -299,		// -299
@@ -236,7 +237,7 @@ int sem_delete(token_list *t_list);
 int sem_update(token_list *t_list);
 int select_aggregate(token_list *t_list);
 int select_by_column(token_list *t_list);
-int select_where_parser(token_list *t_list);
+int select_where_parser(tpd_entry *tab_entry, token_list *t_list);
 
 /* helper functions */
 token_list* insertHelper(int t_class, int t_value, char* t_string);
@@ -258,8 +259,10 @@ int print_select(tpd_entry *tab_entry, int colArray[], int cols_to_print);
 int select_helper(tpd_entry *tab_entry);
 int select_helper_math(tpd_entry *tab_entry, int col_to_aggregate);
 int cnt_not_null(tpd_entry *tab_entry, int col_to_cnt);
-
-
+unsigned char* get_buffer(tpd_entry *tab_entry);
+unsigned char* selectRowsForValue(unsigned char* buffer, tpd_entry *tab_entry, int col_to_search, token_list *search_token, int rel_op, int rec_cnt, int rec_size);
+int print_from_buffer(tpd_entry *tab_entry, unsigned char* buffer, int len_of_buffer, int record_size, int matches);
+int getNumberOfMatches(unsigned char* buffer, tpd_entry *tab_entry, int col_to_search, token_list *search_token, int rel_op, int rec_cnt, int rec_size);
 /*
 	Keep a global list of tpd - in real life, this will be stored
 	in shared memory.  Build a set of functions/methods around this.

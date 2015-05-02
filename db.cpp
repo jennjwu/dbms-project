@@ -1972,6 +1972,133 @@ int print_select(tpd_entry *tab_entry, int colArray[], int cols_to_print)
 	}//not file open error
 }
 
+int print_select_from_buffer(tpd_entry *tab_entry, unsigned char* buffer, int len_of_buffer, int colArray[], int cols_to_print, int record_size, int matches)
+{
+	//get column headers
+	char *format, *head;
+	format = getOuterByCol(tab_entry, colArray, cols_to_print);
+	head = getColHeadersByCol(tab_entry, colArray, cols_to_print);
+	printf("%s\n", format);
+	printf("%s\n", head);
+	printf("%s\n", format);
+
+	
+	int i = 0, rec_cnt = 0, rows = 1;
+	while (i < len_of_buffer)
+	{
+		printf("|");
+		cd_entry  *col = NULL;
+		int k;
+
+		for (int a = 0; a < cols_to_print; a++)
+		{
+			int row_col = i;
+			for (k = 0, col = (cd_entry*)((char*)tab_entry + tab_entry->cd_offset);
+				k < tab_entry->num_columns; k++, col++)
+			{	//while there are columns in tpd
+				unsigned char col_len = (unsigned char)buffer[row_col];
+				if(colArray[a] == col->col_id)
+				{
+					if ((int)col_len > 0)
+					{
+						if (col->col_type == T_INT)
+						{	//for integer data
+							int b = row_col + 1;
+							char *int_b;
+							int elem;
+							int_b = (char*)calloc(1, sizeof(int));
+							for (int a = 0; a < sizeof(int); a++)
+							{
+								int_b[a] = buffer[b + a];
+							}
+							memcpy(&elem, int_b, sizeof(int));
+							printf("%11d|", elem);
+
+						}
+						else if (col->col_type == T_CHAR)
+						{	//for char data
+							int b = row_col + 1;
+							char *str_b;
+							int len = col->col_len + 1;
+							str_b = (char*)calloc(1, len);
+							for (int a = 0; a < len; a++)
+							{
+								str_b[a] = buffer[b + a];
+							}
+							str_b[len - 1] = '\0';
+							printf("%s", str_b);
+							int str_len = strlen(str_b);
+							int width = (col->col_len > strlen(col->col_name)) ?
+								col->col_len : strlen(col->col_name);
+							while (str_len < width)
+							{
+								printf(" ");
+								str_len++;
+							}
+							printf("|");
+						}
+					}
+					else
+					{	//for null
+						if ((int)col_len == 0)
+						{
+							int b = row_col + 1;
+							char *null_b;
+							int len = 0;
+							if (col->col_type == T_INT)
+								len = 11;
+							else if (col->col_type == T_CHAR)
+							{
+								len = (col->col_len > strlen(col->col_name)) ?
+									col->col_len : strlen(col->col_name);
+							}
+
+							null_b = (char*)calloc(1, len);
+							strcat(null_b, "-");
+							int str_len = strlen(null_b);
+							int width = (str_len > len) ? str_len : len;
+
+							//print to L or R depending on col type
+							if (col->col_type == T_INT)
+							{
+								while (str_len < width)
+								{
+									printf(" ");
+									str_len++;
+								}
+								printf("%s|", null_b);
+
+							}
+							else if (col->col_type == T_CHAR)
+							{
+								printf("%s", null_b);
+								while (str_len < width)
+								{
+									printf(" ");
+									str_len++;
+								}
+								printf("|");
+							}
+
+						}//if column is null
+					}
+				}
+				row_col += col->col_len+1; //move to next item/column
+			}
+		}
+
+		printf("\n");
+		rec_cnt += record_size; //jump to next record
+		i = rec_cnt;
+	}//end while
+
+	if (matches > 0)
+		printf("%s\n", format); //print last line
+	printf("%d rows selected.\n", matches);
+				
+	return 0;
+}
+
 int print_from_buffer(tpd_entry *tab_entry, unsigned char* buffer, int len_of_buffer, int record_size, int matches)
 {
 	//get column headers
@@ -2477,7 +2604,203 @@ int select_by_column(token_list *t_list)
 		{
 			printf("got where clause, need to keep parsing\n");
 			cur = cur->next->next;
-		}
+
+				unsigned char* the_buffer = get_buffer(tab_entry);
+				unsigned char* filtered_buffer = NULL;
+
+				//for table file header metadata
+				int rows_tb_size;
+				int record_size;
+				int num_records;
+
+				int col_found = columnFinder(tab_entry, cur->tok_string);
+				if(col_found > -1)
+				{
+					cur = cur->next;
+
+					//get number of records and record_size from table_file_header
+					struct _stat file_stat;
+					table_file_header *recs = NULL;
+
+					/* read from <table_name>.tab file*/
+					char str[MAX_IDENT_LEN];
+					strcpy(str, tab_entry->table_name); //get table name
+					strcat(str, ".tab");
+
+					FILE *fhandle = NULL;
+					if ((fhandle = fopen(str, "rbc")) == NULL)
+					{
+						printf("there was an error opening the file %s\n",str);
+						return -1;
+					}//end file open error
+					else
+					{
+						_fstat(_fileno(fhandle), &file_stat);
+						recs = (table_file_header*)calloc(1, file_stat.st_size);
+
+						if (!recs)
+						{
+							printf("there was a memory error...\n");
+							return -2;
+						}//end memory error
+						else
+						{
+							fread(recs, file_stat.st_size, 1, fhandle);
+							fflush(fhandle);
+							
+							if (recs->file_size != file_stat.st_size)
+							{
+								printf("ptr file_size: %d\n", recs->file_size);
+								printf("read file size and calculated size does not match. db file is corrupted. exiting...\n");
+								return -3;
+							}
+							else
+							{
+								rows_tb_size = recs->file_size - recs->record_offset;
+								record_size = recs->record_size;
+								num_records = recs->num_records;
+							}
+						}
+					}
+
+					if( (cur->tok_value == S_EQUAL) || (cur->tok_value == S_LESS) 
+							|| (cur->tok_value == S_GREATER) )
+					{
+						printf("relational operator is %s\n", cur->tok_string);
+						int rel_op = cur->tok_value;
+						//printf("value to compare is %s\n", cur->next->tok_string);
+						int type_match = checkColType(tab_entry, cur->next->tok_string, cur->next->tok_value, col_found);
+						if(type_match != 1){
+							printf("type in where statement does not match column type\n");
+							rc = MISMATCH_TYPE_IN_WHERE_OF_SELECT;
+							cur->next->tok_value = INVALID;
+							return rc;
+						}
+						else{//type in where clause matches column
+							token_list *select_value = cur->next;
+							cur = cur->next->next;
+							printf("cur is %s\n", cur->tok_string);
+							if( (cur->tok_value== K_AND) || (cur->tok_value == K_OR)){
+								//there is another clause to evaluate
+								int which = cur->next->tok_value; //34 is and -- 35 is or
+								cur = cur->next;
+								int sec_col_found = columnFinder(tab_entry, cur->tok_string);
+								if(sec_col_found > -1){
+									cur = cur->next;
+									if( (cur->tok_value == S_EQUAL) || (cur->tok_value == S_LESS) 
+											|| (cur->tok_value == S_GREATER) )
+									{
+										printf("relational operator is %s\n", cur->tok_string);
+										//printf("value to compare is %s\n", cur->next->tok_string);
+
+										int type_match = checkColType(tab_entry, cur->next->tok_string, cur->next->tok_value, sec_col_found);
+										if(type_match != 1){
+											printf("type in where statement does not match column type\n");
+											rc = MISMATCH_TYPE_IN_WHERE_OF_SELECT;
+											cur->next->tok_value = INVALID;
+											return rc;
+										}
+										else{
+											printf("match found. need to do filter now\n");
+										}
+
+										//do filter of buffer
+									}
+									else if (cur->tok_value == K_IS)
+									{
+										cur = cur->next; //move past IS (next value can only be NULL or NOT)
+										if (cur->tok_value == K_NULL)
+										{
+											printf("looking for null rows\n");
+										}
+										else if ((cur->tok_value == K_NOT) && (cur->next->tok_value == K_NULL))
+										{
+											printf("looking for not null rows\n");
+										}
+										else
+										{
+											printf("invalid where condition\n");
+											rc = INVALID_WHERE_CLAUSE_IN_SELECT;
+											cur->tok_value = INVALID;
+										}
+									}
+									else{
+										printf("invalid where condition\n");
+										rc = INVALID_WHERE_CLAUSE_IN_SELECT;
+										cur->tok_value = INVALID;
+									}
+								}
+								else{
+									printf("column not found in table %s\n", tab_entry->table_name);
+									rc = COLUMN_NOT_EXIST;
+									cur->tok_value = INVALID;
+								}
+							}
+							else if ((cur->tok_value == K_ORDER) && (cur->next->tok_value == K_BY))
+							{//has an order by vlause
+								cur = cur->next->next; //move past 'order' and 'by'
+								int order_col = columnFinder(tab_entry, cur->tok_string);
+								if(order_col > -1){
+									printf("%s column found at index %d\n", cur->tok_string, order_col);
+									printf("order by this column....\n");
+								}
+								else{
+									printf("order by column not found in table %s\n", tab_entry->table_name);
+									rc = COLUMN_NOT_EXIST;
+									cur->tok_value = INVALID;
+								}
+
+							}
+							else if (cur->tok_value == EOC){
+								filtered_buffer = selectRowsForValue(the_buffer, tab_entry, col_found, select_value, rel_op, num_records, record_size);
+								int matches = getNumberOfMatches(the_buffer, tab_entry, col_found, select_value, rel_op, num_records, record_size);
+								rc = print_select_from_buffer(tab_entry, filtered_buffer, matches*record_size, colArray, i, record_size, matches);
+							}
+							else{
+								printf("invalid clause in where of select statement\n");
+								rc = INVALID_WHERE_CLAUSE_IN_SELECT;
+								cur->next->tok_value = INVALID;
+							}
+						}
+					}
+					else if (cur->tok_value == K_IS)
+					{
+						cur = cur->next; //move past IS (next value can only be NULL or NOT)
+						if (cur->tok_value == K_NULL)
+						{
+							//printf("looking for null rows\n");
+
+							filtered_buffer = selectRowsForValue(the_buffer, tab_entry, col_found, cur, K_IS, num_records, record_size);
+							int matches = getNumberOfMatches(the_buffer, tab_entry, col_found, cur, K_IS, num_records, record_size);
+							rc = print_select_from_buffer(tab_entry, filtered_buffer, matches*record_size, colArray, i, record_size, matches);
+						}
+						else if ((cur->tok_value == K_NOT) && (cur->next->tok_value == K_NULL))
+						{
+							//printf("looking for not null rows\n");
+							filtered_buffer = selectRowsForValue(the_buffer, tab_entry, col_found, cur->next, K_NOT, num_records, record_size);
+							int matches = getNumberOfMatches(the_buffer, tab_entry, col_found, cur->next, K_NOT, num_records, record_size);
+							rc = print_select_from_buffer(tab_entry, filtered_buffer, matches*record_size, colArray, i, record_size, matches);
+						}
+						else
+						{
+							printf("invalid where condition\n");
+							rc = INVALID_WHERE_CLAUSE_IN_SELECT;
+							cur->tok_value = INVALID;
+						}
+					}
+					else{
+						printf("invalid where condition\n");
+						rc = INVALID_WHERE_CLAUSE_IN_SELECT;
+						cur->tok_value = INVALID;
+					}
+				}
+				else{
+					printf("column not found in table %s\n", tab_entry->table_name);
+					rc = COLUMN_NOT_EXIST;
+					cur->tok_value = INVALID;
+				}
+
+		}//end where
 		else if(cur->next->tok_value == EOC)
 		{
 			//printf("no where statement found\n");

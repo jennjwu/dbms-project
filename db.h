@@ -263,6 +263,8 @@ unsigned char* get_buffer(tpd_entry *tab_entry);
 unsigned char* selectRowsForValue(unsigned char* buffer, tpd_entry *tab_entry, int col_to_search, token_list *search_token, int rel_op, int rec_cnt, int rec_size);
 int print_from_buffer(tpd_entry *tab_entry, unsigned char* buffer, int len_of_buffer, int record_size, int matches);
 int getNumberOfMatches(unsigned char* buffer, tpd_entry *tab_entry, int col_to_search, token_list *search_token, int rel_op, int rec_cnt, int rec_size);
+int print_select_from_buffer(tpd_entry *tab_entry, unsigned char* buffer, int len_of_buffer, int colArray[], int cols_to_print, int record_size, int matches);
+
 /*
 	Keep a global list of tpd - in real life, this will be stored
 	in shared memory.  Build a set of functions/methods around this.

@@ -1494,6 +1494,9 @@ int sem_select(token_list *t_list)
 	token_list *cur;
 	tpd_entry *tab_entry = NULL;
 	token_list *values = NULL, *head = NULL; //to hold retrieved token list
+	unsigned char* the_buffer = NULL;
+	unsigned char* ordered_buffer = NULL;
+	table_file_header* table_info = NULL;
 
 	cur = t_list;
 	if ((cur->tok_value != S_STAR) && (cur->tok_class != identifier) && (cur->tok_class != function_name))
@@ -1577,7 +1580,34 @@ int sem_select(token_list *t_list)
 							else
 							{
 								cur = cur->next; //move to column name
-								printf("order by clauses not yet implemented\n");
+								the_buffer = get_buffer(tab_entry);
+								int col_to_sort = columnFinder(tab_entry, cur->tok_string);
+								table_info = getTFH(tab_entry);
+								if(col_to_sort > -1){
+									cur = cur->next;
+									if(cur->tok_value == EOC){
+										printf("TODO: need to print in asc order by col# %d\n", col_to_sort);
+										
+										ordered_buffer = orderByBuffer(the_buffer, tab_entry, col_to_sort,1,table_info->record_size, table_info->num_records);
+
+										rc = print_select_from_buffer(tab_entry, ordered_buffer, table_info->num_records*table_info->record_size, table_info->num_records, table_info->record_size);
+
+									}
+									else if (cur->tok_value == K_DESC){
+										printf("TODO: need to print in desc order by col# %d\n", col_to_sort);
+
+									}
+									else{
+										printf("invalid symbol or keyword in order by clause of select statement\n");
+										rc = INVALID_ORDER_BY_CLAUSE_IN_SELECT;
+										cur->tok_value = INVALID;
+									}
+								}
+								else{
+									printf("order by column not found in table %s\n", tab_entry->table_name);
+									rc = COLUMN_NOT_EXIST;
+									cur->tok_value = INVALID;
+								}
 							}
 						}
 						else
@@ -1970,6 +2000,126 @@ int print_select(tpd_entry *tab_entry, int colArray[], int cols_to_print)
 		}//end not memory error
 		return 0;
 	}//not file open error
+}
+
+int print_select_from_buffer(tpd_entry *tab_entry, unsigned char* buffer, int len_of_buffer, int num_records, int record_size)
+{
+	//get column headers
+	char *format, *head;
+	format = getOuter(tab_entry);
+	head = getColHeaders(tab_entry);
+	printf("%s\n", format);
+	printf("%s\n", head);
+	printf("%s\n", format);
+
+	int i = 0, rec_cnt = 0, rows = 1, col_number = 0;
+	while (i < (num_records*record_size))
+	{
+		printf("|");
+		cd_entry  *col = NULL;
+		int k, row_col = 0;
+		for (k = 0, col = (cd_entry*)((char*)tab_entry + tab_entry->cd_offset);
+			k < tab_entry->num_columns; k++, col++)
+		{	//while there are columns in tpd
+			
+			unsigned char col_len = (unsigned char)buffer[i];
+			
+			if ((int)col_len > 0)
+			{
+				if (col->col_type == T_INT)
+				{	//for integer data
+					int b = i + 1;
+					char *int_b;
+					int elem;
+					int_b = (char*)calloc(1, sizeof(int));
+					for (int a = 0; a < sizeof(int); a++)
+					{
+						int_b[a] = buffer[b + a];
+					}
+					memcpy(&elem, int_b, sizeof(int));
+					printf("%11d|", elem);
+
+				}
+				else if (col->col_type == T_CHAR)
+				{	//for char data
+					int b = i + 1;
+					char *str_b;
+					int len = col->col_len + 1;
+					str_b = (char*)calloc(1, len);
+					for (int a = 0; a < len; a++)
+					{
+						str_b[a] = buffer[b + a];
+					}
+					str_b[len - 1] = '\0';
+					printf("%s", str_b);
+					int str_len = strlen(str_b);
+					int width = (col->col_len > strlen(col->col_name)) ?
+						col->col_len : strlen(col->col_name);
+					while (str_len < width)
+					{
+						printf(" ");
+						str_len++;
+					}
+					printf("|");
+				}
+			}
+			else
+			{	//for null
+				if ((int)col_len == 0)
+				{
+					int b = i + 1;
+					char *null_b;
+					int len = 0;
+					if (col->col_type == T_INT)
+						len = 11;
+					else if (col->col_type == T_CHAR)
+					{
+						len = (col->col_len > strlen(col->col_name)) ?
+							col->col_len : strlen(col->col_name);
+					}
+
+					null_b = (char*)calloc(1, len);
+					strcat(null_b, "-");
+					int str_len = strlen(null_b);
+					int width = (str_len > len) ? str_len : len;
+
+					//print to L or R depending on col type
+					if (col->col_type == T_INT)
+					{
+						while (str_len < width)
+						{
+							printf(" ");
+							str_len++;
+						}
+						printf("%s|", null_b);
+
+					}
+					else if (col->col_type == T_CHAR)
+					{
+						printf("%s", null_b);
+						while (str_len < width)
+						{
+							printf(" ");
+							str_len++;
+						}
+						printf("|");
+					}
+
+				}//if column is null
+				else
+					return -3; //if byte is anything else
+			}
+			i += col->col_len+1; //move to next item/column
+		}
+		printf("\n");
+		rec_cnt += record_size; //jump to next record
+		i = rec_cnt;
+	}//end while
+	if (num_records > 0)
+		printf("%s\n", format); //print last line
+	printf("%d rows selected.\n", num_records);
+				
+	return 0;
 }
 
 int print_select_from_buffer(tpd_entry *tab_entry, unsigned char* buffer, int len_of_buffer, int colArray[], int cols_to_print, int record_size, int matches)
@@ -5542,5 +5692,189 @@ int getNumberOfMatches(unsigned char* buffer, tpd_entry *tab_entry, int col_to_s
 		//printf("matching rows is %d\n\n", matches);
 
 		return matches;
+	}
+}
+
+table_file_header* getTFH(tpd_entry *tab_entry)
+{
+	struct _stat file_stat;
+	table_file_header *recs = NULL;
+
+	/* read from <table_name>.tab file*/
+	char str[MAX_IDENT_LEN];
+	strcpy(str, tab_entry->table_name); //get table name
+	strcat(str, ".tab");
+
+	FILE *fhandle = NULL;
+	if ((fhandle = fopen(str, "rbc")) == NULL)
+	{
+		printf("there was an error opening the file %s\n",str);
+		return NULL;
+	}//end file open error
+	else
+	{
+		_fstat(_fileno(fhandle), &file_stat);
+		recs = (table_file_header*)calloc(1, file_stat.st_size);
+
+		if (!recs)
+		{
+			printf("there was a memory error...\n");
+			return NULL;
+		}//end memory error
+		else
+		{
+			fread(recs, file_stat.st_size, 1, fhandle);
+			fflush(fhandle);
+			
+			if (recs->file_size != file_stat.st_size)
+			{
+				printf("ptr file_size: %d\n", recs->file_size);
+				printf("read file size and calculated size does not match. db file is corrupted. exiting...\n");
+				return NULL;
+			}
+			else
+			{
+				return recs;
+			}
+		}
+	}
+}
+
+unsigned char* orderByBuffer(unsigned char* buffer, tpd_entry *tab_entry, int col_to_order_on, int order, int rec_size, int rec_cnt)
+{
+	//order - 32 is desc, 1 for default asc
+	int i = 0;
+	unsigned char* new_buffer = NULL;
+	unsigned char* temp_buffer = NULL;
+	int matches = 0;
+
+	//printf("length of the rows is %d\n", rec_size * rec_cnt);
+	new_buffer = (unsigned char*)calloc(1, rec_size * rec_cnt);
+	temp_buffer = (unsigned char*)calloc(1, rec_size); //hold temp record being swapped
+
+	if(!buffer){
+		return NULL;
+	}
+	else{
+		int j = 0, record_counter = 0, rows = 1, inner_row_cnt = 0, new_b_cnt = 0;
+		printf("rec_cnt is %d and rec_size is %d so total is %d\n", rec_cnt, rec_size, rec_cnt*rec_size);
+
+		while (i < (rec_cnt * rec_size) )
+		{
+			//j = i;
+			inner_row_cnt = 0, j = 0;
+			while(inner_row_cnt < rec_cnt-1){
+				
+				cd_entry  *col = NULL;
+				int k, col_offset = 0;
+				int record_counter = i;
+				bool copy = false;
+
+				for (k = 0, col = (cd_entry*)((char*)tab_entry + tab_entry->cd_offset); 
+					k < tab_entry->num_columns; k++, col++)
+				{	//while there are columns in tpd
+					//unsigned char col_len == (unsigned char)buffer[record_counter];
+					if(col->col_id != col_to_order_on){
+						j += col->col_len + 1;
+						//printf("col not match. continue\n");
+					}
+					else{
+						unsigned char col_len = (unsigned char)buffer[j];
+						//printf("col_len is %u\n", col_len);
+						//printf("search_token tok_value is %d\n", search_token->tok_value);
+						//printf("rel_op is %d\n", rel_op);
+						int b = j + 1;
+						if (col->col_type == T_INT){
+							int elem;
+							char *int_b;
+							int_b = (char*)calloc(1, sizeof(int));
+
+							if((int)col_len == 0)
+							{//for nulls
+								printf("is null - order to bottom\n");
+								elem = -99;
+							}
+							else{
+								for (int a = 0; a < sizeof(int); a++)
+								{
+									int_b[a] = buffer[b + a];
+								}
+								memcpy(&elem, int_b, sizeof(int));
+							}
+							
+							printf("element is %d\n",elem);
+
+							//compare to next item
+							int elem2;
+							char *int_b2;
+							int_b2 = (char*)calloc(1, sizeof(int));
+							for (int a = 0; a < sizeof(int); a++)
+							{
+								int_b2[a] = buffer[b + a + rec_size];
+							}
+							memcpy(&elem2, int_b2, sizeof(int));
+							printf("  element2 is %d\n",elem2);
+
+							if(elem < elem2){
+								printf("---SWITCHING---\n");
+								/*for(int a = 0; a < rec_size; a++){
+									printf("%u",buffer[j+a]);
+								}
+
+								printf("\n");
+
+								for(int a = 0; a < rec_size; a++){
+									printf("%u",buffer[j+a+rec_size]);
+								}*/
+
+								for(int a = 0; a < rec_size; a++){
+									temp_buffer[a] = buffer[j + a];
+									buffer[j + a] = buffer[j + a + rec_size];
+									buffer[j + a + rec_size] = temp_buffer[a];
+								}
+
+								/*printf("after....\n");
+								for(int a = 0; a < rec_size; a++){
+									printf("%u",buffer[j+a]);
+								}
+								printf("\n");
+								for(int a = 0; a < rec_size; a++){
+									printf("%u",buffer[j+a+rec_size]);
+								}*/
+							}
+
+						}
+						else if (col->col_type == T_CHAR){
+							/*char *str_b;
+							int len = col->col_len + 1;
+							str_b = (char*)calloc(1, len);
+							for (int a = 0; a < len; a++)
+							{
+								str_b[a] = buffer[b + a];
+							}
+							str_b[len - 1] = '\0';
+							printf("%s\n", str_b);*/
+						}
+					}
+				}
+				//printf("in here at record # %d\n", rows);
+
+				/*if(copy){
+					for(int a = 0; a < rec_size; a++){
+						new_buffer[new_b_cnt++] = buffer[i + a];
+					}
+				}*/
+				printf("  in inner loop at record offset %d (row #%d)\n", j, inner_row_cnt);
+				j += rec_size;
+				inner_row_cnt++;
+			}
+			rows++;
+			printf("in outer loop at record offset %d\n", i);
+			record_counter += rec_size; //jump to next record
+			i = record_counter;
+		}
+
+
+		return buffer;
 	}
 }

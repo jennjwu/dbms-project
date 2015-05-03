@@ -258,14 +258,21 @@ char* getColHeadersByCol(tpd_entry *tab_entry, int colArray[], int num_col_to_fe
 int print_selectAll(tpd_entry *tab_entry);
 int print_select(tpd_entry *tab_entry, int colArray[], int cols_to_print);
 int select_helper(tpd_entry *tab_entry);
-int select_helper_math(tpd_entry *tab_entry, int col_to_aggregate);
-int cnt_not_null(tpd_entry *tab_entry, int col_to_cnt);
+
+int select_helper_math(tpd_entry *tab_entry, table_file_header *table_info, unsigned char* buffer, int col_to_aggregate);
+int cnt_not_null(tpd_entry *tab_entry, table_file_header *table_info, unsigned char* buffer, int col_to_cnt);
+
 unsigned char* get_buffer(tpd_entry *tab_entry);
+int checkAggregateSyntax(tpd_entry *tab_entry, token_list *agg_col);
+int print_aggregate(tpd_entry *tab_entry, table_file_header *table_info, unsigned char* buffer, int column_number, token_list *agg_tok, int agg_func, int num_records);
+
+
+
 unsigned char* selectRowsForValue(unsigned char* buffer, tpd_entry *tab_entry, int col_to_search, token_list *search_token, int rel_op, int rec_cnt, int rec_size);
 int print_from_buffer(tpd_entry *tab_entry, unsigned char* buffer, int len_of_buffer, int record_size, int matches);
 int getNumberOfMatches(unsigned char* buffer, tpd_entry *tab_entry, int col_to_search, token_list *search_token, int rel_op, int rec_cnt, int rec_size);
 int print_select_from_buffer(tpd_entry *tab_entry, unsigned char* buffer, int len_of_buffer, int num_records, int record_size);
-int print_select_from_buffer(tpd_entry *tab_entry, unsigned char* buffer, int len_of_buffer, int colArray[], int cols_to_print, int record_size, int matches);
+int print_select_from_buffer(tpd_entry *tab_entry, unsigned char* buffer, int len_of_buffer, int matches, int record_size,  int colArray[], int cols_to_print);
 unsigned char* orderByBuffer(unsigned char* buffer, tpd_entry *tab_entry, int col_to_order_on, int order, int rec_size, int rec_cnt);
 table_file_header* getTFH(tpd_entry *tab_entry);
 

@@ -3256,7 +3256,47 @@ int select_where_parser(tpd_entry *tab_entry, token_list *t_list)
 							}
 							else if ((cur->tok_value == K_NOT) && (cur->next->tok_value == K_NULL))
 							{
-								printf("looking for not null rows\n");
+								cur = cur->next; //move to null keyword
+								filtered_buffer = selectRowsForValue(the_buffer, tab_entry, col_found, select_value, rel_op, num_records, record_size);
+								int matches = getNumberOfMatches(the_buffer, tab_entry, col_found, select_value, rel_op, num_records, record_size);
+								//rc = print_from_buffer(tab_entry, filtered_buffer, matches*record_size, record_size, matches);
+								second_filter_buffer = selectRowsForValue(filtered_buffer, tab_entry, sec_col_found, cur, K_NOT, matches, record_size);
+								int matches2 = getNumberOfMatches(filtered_buffer, tab_entry, sec_col_found, cur, K_NOT, matches, record_size);
+								//printf("looking for null rows\n");
+								if(cur->next->tok_value == EOC){
+									rc = print_from_buffer(tab_entry, second_filter_buffer, matches2*record_size,record_size, matches2);
+								}
+								else if ( (cur->next->tok_value == K_ORDER) && (cur->next->next->tok_value == K_BY)){
+									cur = cur->next->next->next; //skip past order by
+
+									int order_col = columnFinder(tab_entry, cur->tok_string);
+									if(order_col > -1){
+										cur = cur->next;
+										if(cur->tok_value == EOC){
+											printf("TODO: need to print in asc order by col# %d\n", order_col);
+
+										}
+										else if (cur->tok_value == K_DESC){
+											printf("TODO: need to print in asc order by col# %d\n", order_col);
+
+										}
+										else{
+											printf("invalid symbol or keyword in order by clause of select statement\n");
+											rc = INVALID_ORDER_BY_CLAUSE_IN_SELECT;
+											cur->tok_value = INVALID;
+										}
+									}
+									else{
+										printf("order by column not found in table %s\n", tab_entry->table_name);
+										rc = COLUMN_NOT_EXIST;
+										cur->tok_value = INVALID;
+									}								
+								}
+								else{
+									printf("invalid symbol or keyword after where clause in select statement\n");
+									rc = UNEXPECTED_AFTER_WHERE_OF_SELECT;
+									cur->tok_value = INVALID;
+								}
 							}
 							else
 							{
@@ -3279,9 +3319,10 @@ int select_where_parser(tpd_entry *tab_entry, token_list *t_list)
 				}
 				else if(cur->tok_value == K_OR){
 					//OR CASE
+					printf("NEED way to combine OR....\n");
 				}
 				else if ((cur->tok_value == K_ORDER) && (cur->next->tok_value == K_BY))
-				{//has an order by vlause
+				{//has an order by clause
 					cur = cur->next->next; //move past 'order' and 'by'
 					int order_col = columnFinder(tab_entry, cur->tok_string);
 					if(order_col > -1){
@@ -3316,17 +3357,197 @@ int select_where_parser(tpd_entry *tab_entry, token_list *t_list)
 			cur = cur->next; //move past IS (next value can only be NULL or NOT)
 			if (cur->tok_value == K_NULL)
 			{
-				if( (cur->next->tok_value == K_AND) || (cur->next->tok_value == K_OR)){
+				token_list* null_ptr = cur;
+				cur = cur->next; //move to next token
+
+				//SECOND WHERE CLAUSE
+				if(cur->tok_value== K_AND){
+					//there is another clause to evaluate
+					//int which = cur->next->tok_value; //34 is and -- 35 is or
+					cur = cur->next;//move past and keyword
+					int sec_col_found = columnFinder(tab_entry, cur->tok_string);
+					if(sec_col_found > -1){
+						cur = cur->next;
+						if( (cur->tok_value == S_EQUAL) || (cur->tok_value == S_LESS) 
+								|| (cur->tok_value == S_GREATER) )
+						{
+							//printf("relational operator is %s\n", cur->tok_string);
+							int rel_op_2 = cur->tok_value;
+							//printf("value to compare is %s\n", cur->next->tok_string);
+
+							int type_match = checkColType(tab_entry, cur->next->tok_string, cur->next->tok_value, sec_col_found);
+							if(type_match != 1){
+								printf("type in where statement does not match column type\n");
+								rc = MISMATCH_TYPE_IN_WHERE_OF_SELECT;
+								cur->next->tok_value = INVALID;
+								return rc;
+							}
+							else{
+								//printf("match found. need to do filter now\n");
+								cur = cur->next;
+								filtered_buffer = selectRowsForValue(the_buffer, tab_entry, col_found, null_ptr, K_IS, num_records, record_size);
+								int matches = getNumberOfMatches(the_buffer, tab_entry, col_found, null_ptr, K_IS, num_records, record_size);
+								//rc = print_from_buffer(tab_entry, filtered_buffer, matches*record_size, record_size, matches);
+
+								second_filter_buffer = selectRowsForValue(filtered_buffer, tab_entry, sec_col_found, cur, rel_op_2, matches, record_size);
+								int matches2 = getNumberOfMatches(filtered_buffer, tab_entry,sec_col_found, cur, rel_op_2, matches, record_size);
+								if(cur->next->tok_value == EOC){
+									//printf("matches2 is %d\n", matches2);
+									rc = print_from_buffer(tab_entry, second_filter_buffer, matches2*record_size, record_size, matches2);
+								}
+								else if ( (cur->next->tok_value == K_ORDER) && (cur->next->next->tok_value == K_BY)){
+									cur = cur->next->next->next; //skip past order by
+
+									int order_col = columnFinder(tab_entry, cur->tok_string);
+									if(order_col > -1){
+										cur = cur->next;
+										if(cur->tok_value == EOC){
+											printf("TODO: need to print in asc order by col# %d\n", order_col);
+
+										}
+										else if (cur->tok_value == K_DESC){
+											printf("TODO: need to print in asc order by col# %d\n", order_col);
+
+										}
+										else{
+											printf("invalid symbol or keyword in order by clause of select statement\n");
+											rc = INVALID_ORDER_BY_CLAUSE_IN_SELECT;
+											cur->tok_value = INVALID;
+										}
+									}
+									else{
+										printf("order by column not found in table %s\n", tab_entry->table_name);
+										rc = COLUMN_NOT_EXIST;
+										cur->tok_value = INVALID;
+									}								
+								}
+								else{
+									printf("invalid symbol or keyword after where clause in select statement\n");
+									rc = UNEXPECTED_AFTER_WHERE_OF_SELECT;
+									cur->tok_value = INVALID;
+								}
+							}
+						}
+						else if (cur->tok_value == K_IS)
+						{
+							cur = cur->next; //move past IS (next value can only be NULL or NOT)
+							if (cur->tok_value == K_NULL)
+							{
+								filtered_buffer = selectRowsForValue(the_buffer, tab_entry, col_found, null_ptr, K_IS, num_records, record_size);
+								int matches = getNumberOfMatches(the_buffer, tab_entry, col_found,  null_ptr, K_IS, num_records, record_size);
+								//rc = print_from_buffer(tab_entry, filtered_buffer, matches*record_size, record_size, matches);
+								second_filter_buffer = selectRowsForValue(filtered_buffer, tab_entry, sec_col_found, cur, K_IS, matches, record_size);
+								int matches2 = getNumberOfMatches(filtered_buffer, tab_entry, sec_col_found, cur, K_IS, matches, record_size);
+								//printf("looking for null rows\n");
+								if(cur->next->tok_value == EOC){
+									rc = print_from_buffer(tab_entry, second_filter_buffer, matches2*record_size,record_size, matches2);
+								}
+								else if ( (cur->next->tok_value == K_ORDER) && (cur->next->next->tok_value == K_BY)){
+									cur = cur->next->next->next; //skip past order by
+
+									int order_col = columnFinder(tab_entry, cur->tok_string);
+									if(order_col > -1){
+										cur = cur->next;
+										if(cur->tok_value == EOC){
+											printf("TODO: need to print in asc order by col# %d\n", order_col);
+
+										}
+										else if (cur->tok_value == K_DESC){
+											printf("TODO: need to print in asc order by col# %d\n", order_col);
+
+										}
+										else{
+											printf("invalid symbol or keyword in order by clause of select statement\n");
+											rc = INVALID_ORDER_BY_CLAUSE_IN_SELECT;
+											cur->tok_value = INVALID;
+										}
+									}
+									else{
+										printf("order by column not found in table %s\n", tab_entry->table_name);
+										rc = COLUMN_NOT_EXIST;
+										cur->tok_value = INVALID;
+									}								
+								}
+								else{
+									printf("invalid symbol or keyword after where clause in select statement\n");
+									rc = UNEXPECTED_AFTER_WHERE_OF_SELECT;
+									cur->tok_value = INVALID;
+								}
+							}
+							else if ((cur->tok_value == K_NOT) && (cur->next->tok_value == K_NULL))
+							{
+								cur = cur->next; //move to null keyword
+								filtered_buffer = selectRowsForValue(the_buffer, tab_entry, col_found,  null_ptr, K_IS, num_records, record_size);
+								int matches = getNumberOfMatches(the_buffer, tab_entry, col_found,  null_ptr, K_IS, num_records, record_size);
+								//rc = print_from_buffer(tab_entry, filtered_buffer, matches*record_size, record_size, matches);
+								second_filter_buffer = selectRowsForValue(filtered_buffer, tab_entry, sec_col_found, cur, K_NOT, matches, record_size);
+								int matches2 = getNumberOfMatches(filtered_buffer, tab_entry, sec_col_found, cur, K_NOT, matches, record_size);
+								//printf("looking for null rows\n");
+								if(cur->next->tok_value == EOC){
+									rc = print_from_buffer(tab_entry, second_filter_buffer, matches2*record_size,record_size, matches2);
+								}
+								else if ( (cur->next->tok_value == K_ORDER) && (cur->next->next->tok_value == K_BY)){
+									cur = cur->next->next->next; //skip past order by
+
+									int order_col = columnFinder(tab_entry, cur->tok_string);
+									if(order_col > -1){
+										cur = cur->next;
+										if(cur->tok_value == EOC){
+											printf("TODO: need to print in asc order by col# %d\n", order_col);
+
+										}
+										else if (cur->tok_value == K_DESC){
+											printf("TODO: need to print in asc order by col# %d\n", order_col);
+
+										}
+										else{
+											printf("invalid symbol or keyword in order by clause of select statement\n");
+											rc = INVALID_ORDER_BY_CLAUSE_IN_SELECT;
+											cur->tok_value = INVALID;
+										}
+									}
+									else{
+										printf("order by column not found in table %s\n", tab_entry->table_name);
+										rc = COLUMN_NOT_EXIST;
+										cur->tok_value = INVALID;
+									}								
+								}
+								else{
+									printf("invalid symbol or keyword after where clause in select statement\n");
+									rc = UNEXPECTED_AFTER_WHERE_OF_SELECT;
+									cur->tok_value = INVALID;
+								}
+							}
+							else
+							{
+								printf("invalid where condition\n");
+								rc = INVALID_WHERE_CLAUSE_IN_SELECT;
+								cur->tok_value = INVALID;
+							}
+						}
+						else{
+							printf("invalid where condition\n");
+							rc = INVALID_WHERE_CLAUSE_IN_SELECT;
+							cur->tok_value = INVALID;
+						}
+					}
+					else{
+						printf("column not found in table %s\n", tab_entry->table_name);
+						rc = COLUMN_NOT_EXIST;
+						cur->tok_value = INVALID;
+					}
+				}
+				else if(cur->tok_value == K_OR){
 
 				}
-				else if ( (cur->next->tok_value == K_ORDER) && (cur->next->next->tok_value == K_BY))
+				else if ( (cur->tok_value == K_ORDER) && (cur->next->tok_value == K_BY))
 				{
 
 				}
-				else if (cur->next->tok_value == EOC)
+				else if (cur->tok_value == EOC)
 				{
-					filtered_buffer = selectRowsForValue(the_buffer, tab_entry, col_found, cur, K_IS, num_records, record_size);
-					int matches = getNumberOfMatches(the_buffer, tab_entry, col_found, cur, K_IS, num_records, record_size);
+					filtered_buffer = selectRowsForValue(the_buffer, tab_entry, col_found, null_ptr, K_IS, num_records, record_size);
+					int matches = getNumberOfMatches(the_buffer, tab_entry, col_found, null_ptr, K_IS, num_records, record_size);
 					rc = print_from_buffer(tab_entry, filtered_buffer, matches*record_size, record_size, matches);
 				}
 				else{
@@ -3337,8 +3558,12 @@ int select_where_parser(tpd_entry *tab_entry, token_list *t_list)
 			}//for 'is null'
 			else if ((cur->tok_value == K_NOT) && (cur->next->tok_value == K_NULL))
 			{
+				token_list * null_ptr = cur;
 				cur = cur->next; //move to NULL keyword
-				if( (cur->next->tok_value == K_AND) || (cur->next->tok_value == K_OR)){
+				if(cur->next->tok_value == K_AND){
+
+				}
+				else if(cur->next->tok_value == K_OR){
 					
 				}
 				else if ( (cur->next->tok_value == K_ORDER) && (cur->next->next->tok_value == K_BY))
@@ -3347,8 +3572,8 @@ int select_where_parser(tpd_entry *tab_entry, token_list *t_list)
 				}
 				else if (cur->next->tok_value == EOC)
 				{	//one where clause only
-					filtered_buffer = selectRowsForValue(the_buffer, tab_entry, col_found, cur->next, K_NOT, num_records, record_size);
-					int matches = getNumberOfMatches(the_buffer, tab_entry, col_found, cur->next, K_NOT, num_records, record_size);
+					filtered_buffer = selectRowsForValue(the_buffer, tab_entry, col_found, null_ptr->next, K_NOT, num_records, record_size);
+					int matches = getNumberOfMatches(the_buffer, tab_entry, col_found, null_ptr->next, K_NOT, num_records, record_size);
 					rc = print_from_buffer(tab_entry, filtered_buffer, matches*record_size, record_size, matches);
 				}
 				else

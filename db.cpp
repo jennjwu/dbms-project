@@ -1561,7 +1561,6 @@ int sem_select(token_list *t_list)
 						else
 						{
 							cur = cur->next;
-							//printf("where clauses not yet implemented\n");
 							rc = select_where_parser(tab_entry, cur);
 							printf("\nin sem_select:\nrc is %d\n",rc);
 						}
@@ -1586,16 +1585,15 @@ int sem_select(token_list *t_list)
 								if(col_to_sort > -1){
 									cur = cur->next;
 									if(cur->tok_value == EOC){
-										printf("TODO: need to print in asc order by col# %d\n", col_to_sort);
-										
 										ordered_buffer = orderByBuffer(the_buffer, tab_entry, col_to_sort,1,table_info->record_size, table_info->num_records);
 
 										rc = print_select_from_buffer(tab_entry, ordered_buffer, table_info->num_records*table_info->record_size, table_info->num_records, table_info->record_size);
 
 									}
 									else if (cur->tok_value == K_DESC){
-										printf("TODO: need to print in desc order by col# %d\n", col_to_sort);
+										ordered_buffer = orderByBuffer(the_buffer, tab_entry, col_to_sort,K_DESC,table_info->record_size, table_info->num_records);
 
+										rc = print_select_from_buffer(tab_entry, ordered_buffer, table_info->num_records*table_info->record_size, table_info->num_records, table_info->record_size);
 									}
 									else{
 										printf("invalid symbol or keyword in order by clause of select statement\n");
@@ -5763,6 +5761,7 @@ unsigned char* orderByBuffer(unsigned char* buffer, tpd_entry *tab_entry, int co
 		{
 			//j = i;
 			inner_row_cnt = 0, j = 0;
+			int index = 0;
 			while(inner_row_cnt < rec_cnt-1){
 				
 				cd_entry  *col = NULL;
@@ -5791,7 +5790,7 @@ unsigned char* orderByBuffer(unsigned char* buffer, tpd_entry *tab_entry, int co
 
 							if((int)col_len == 0)
 							{//for nulls
-								printf("is null - order to bottom\n");
+								//printf("is null - order to bottom\n");
 								elem = -99;
 							}
 							else{
@@ -5801,8 +5800,7 @@ unsigned char* orderByBuffer(unsigned char* buffer, tpd_entry *tab_entry, int co
 								}
 								memcpy(&elem, int_b, sizeof(int));
 							}
-							
-							printf("element is %d\n",elem);
+							//printf("element is %d\n",elem);
 
 							//compare to next item
 							int elem2;
@@ -5813,36 +5811,29 @@ unsigned char* orderByBuffer(unsigned char* buffer, tpd_entry *tab_entry, int co
 								int_b2[a] = buffer[b + a + rec_size];
 							}
 							memcpy(&elem2, int_b2, sizeof(int));
-							printf("  element2 is %d\n",elem2);
+							//printf("  element2 is %d\n",elem2);
 
-							if(elem < elem2){
-								printf("---SWITCHING---\n");
-								/*for(int a = 0; a < rec_size; a++){
-									printf("%u",buffer[j+a]);
-								}
 
-								printf("\n");
-
-								for(int a = 0; a < rec_size; a++){
-									printf("%u",buffer[j+a+rec_size]);
-								}*/
-
-								for(int a = 0; a < rec_size; a++){
-									temp_buffer[a] = buffer[j + a];
-									buffer[j + a] = buffer[j + a + rec_size];
-									buffer[j + a + rec_size] = temp_buffer[a];
-								}
-
-								/*printf("after....\n");
-								for(int a = 0; a < rec_size; a++){
-									printf("%u",buffer[j+a]);
-								}
-								printf("\n");
-								for(int a = 0; a < rec_size; a++){
-									printf("%u",buffer[j+a+rec_size]);
-								}*/
+							switch(order){
+								case 1: //for asc (default)
+									if(elem > elem2){
+										for(int a = 0; a < rec_size; a++){
+											temp_buffer[a] = buffer[index + a];
+											buffer[index + a] = buffer[index + a + rec_size];
+											buffer[index + a + rec_size] = temp_buffer[a];
+										}
+									}
+									break;
+								case 32: //for desc
+									if(elem < elem2){
+										for(int a = 0; a < rec_size; a++){
+											temp_buffer[a] = buffer[index + a];
+											buffer[index+ a] = buffer[index + a + rec_size];
+											buffer[index + a + rec_size] = temp_buffer[a];
+										}
+									}
+									break;
 							}
-
 						}
 						else if (col->col_type == T_CHAR){
 							/*char *str_b;
@@ -5855,6 +5846,7 @@ unsigned char* orderByBuffer(unsigned char* buffer, tpd_entry *tab_entry, int co
 							str_b[len - 1] = '\0';
 							printf("%s\n", str_b);*/
 						}
+						break;
 					}
 				}
 				//printf("in here at record # %d\n", rows);
@@ -5864,12 +5856,13 @@ unsigned char* orderByBuffer(unsigned char* buffer, tpd_entry *tab_entry, int co
 						new_buffer[new_b_cnt++] = buffer[i + a];
 					}
 				}*/
-				printf("  in inner loop at record offset %d (row #%d)\n", j, inner_row_cnt);
-				j += rec_size;
+				//printf("  in inner loop at record offset %d (row #%d)\n", j, inner_row_cnt);
+				index += rec_size;
+				j = index;
 				inner_row_cnt++;
 			}
 			rows++;
-			printf("in outer loop at record offset %d\n", i);
+			//printf("in outer loop at record offset %d\n", i);
 			record_counter += rec_size; //jump to next record
 			i = record_counter;
 		}

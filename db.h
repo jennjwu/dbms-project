@@ -216,7 +216,9 @@ typedef enum error_return_codes
 	INVALID_COL_FOR_AGGREGATE,			// -329
 	AGGREGATE_COL_TYPE_MISMATCH,		// -328
 	MISMATCH_TYPE_IN_WHERE_OF_SELECT,	// -327
-	UNEXPECTED_AFTER_WHERE_OF_SELECT,	// -326
+	UNEXPECTED_ITEM_IN_WHERE_OF_SELECT,	// -326
+	INVALID_REL_OP_IN_WHERE_OF_SELECT,	// -325
+	UNEXPECTED_AFTER_WHERE_OF_SELECT, 	// -324
 	
 	/* other errors */
 	FILE_OPEN_ERROR = -299,		// -299
@@ -259,14 +261,13 @@ int print_selectAll(tpd_entry *tab_entry);
 int print_select(tpd_entry *tab_entry, int colArray[], int cols_to_print);
 int select_helper(tpd_entry *tab_entry);
 
-int select_helper_math(tpd_entry *tab_entry, table_file_header *table_info, unsigned char* buffer, int col_to_aggregate);
-int cnt_not_null(tpd_entry *tab_entry, table_file_header *table_info, unsigned char* buffer, int col_to_cnt);
+int select_helper_math(tpd_entry *tab_entry, table_file_header *table_info, unsigned char* buffer, int col_to_aggregate, int num_records);
+int cnt_not_null(tpd_entry *tab_entry, table_file_header *table_info, unsigned char* buffer, int col_to_cnt, int num_records);
 
 unsigned char* get_buffer(tpd_entry *tab_entry);
 int checkAggregateSyntax(tpd_entry *tab_entry, token_list *agg_col);
 int print_aggregate(tpd_entry *tab_entry, table_file_header *table_info, unsigned char* buffer, int column_number, token_list *agg_tok, int agg_func, int num_records);
-
-
+unsigned char* select_where_parser(tpd_entry *tab_entry, table_file_header table_info, unsigned char* buffer, int size_of_buffer, token_list *cur);
 
 unsigned char* selectRowsForValue(unsigned char* buffer, tpd_entry *tab_entry, int col_to_search, token_list *search_token, int rel_op, int rec_cnt, int rec_size);
 int print_from_buffer(tpd_entry *tab_entry, unsigned char* buffer, int len_of_buffer, int record_size, int matches);

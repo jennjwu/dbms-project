@@ -1494,6 +1494,7 @@ int sem_select(token_list *t_list)
 	token_list *cur;
 	tpd_entry *tab_entry = NULL;
 	unsigned char* the_buffer = NULL;
+	unsigned char* filtered_buffer = NULL;
 	unsigned char* ordered_buffer = NULL;
 	table_file_header* table_info = NULL;
 	int colArray[MAX_NUM_COL]; //array to hold column ids to select
@@ -1501,6 +1502,9 @@ int sem_select(token_list *t_list)
 	int aggregate_func = 0;
 	int aggregate_col = -1;
 	token_list *aggregate_col_tok = NULL;
+	token_list *where_col1_tok = NULL;
+	int rel_op1 = 0;
+	token_list *rel_value = NULL;
 
 	cur = t_list;
 	if ((cur->tok_value != S_STAR) && (cur->tok_class != identifier) && (cur->tok_class != function_name))
@@ -1626,13 +1630,161 @@ int sem_select(token_list *t_list)
 	if(!rc){
 		//cur should be at table name in both cases
 		table_info = getTFH(tab_entry);
+		int num_records = table_info->num_records;
+		int record_size = table_info->record_size;
 		the_buffer = get_buffer(tab_entry);
 		//printf("cur is at %s\n", cur->tok_string);
 		cur = cur->next;
 
 		if(cur->tok_value == K_WHERE){
-			//call where parser and get buffer back
-			//pass buffer to a printer function
+			cur = cur->next;//move past where
+
+			//FIRST WHERE CLAUSE
+			int where_col1 = columnFinder(tab_entry, cur->tok_string);
+			if(where_col1 > -1){
+				where_col1_tok = cur;
+				cur = cur->next;
+
+				if((cur->tok_value == S_EQUAL) || (cur->tok_value == S_LESS) 
+						|| (cur->tok_value == S_GREATER) || (cur->tok_value == K_IS))
+				{
+					rel_op1 = cur->tok_value;
+					if(cur->tok_value == K_IS){
+						if(cur->next->tok_value == K_NOT){
+							rel_op1 = cur->next->tok_value; //set rel_op1 to NOT
+							cur = cur->next; //cur @ NOT now
+						}
+
+						if(cur->next->tok_value != K_NULL){
+							printf("invalid use of the keyword 'is' which can only be followed by 'null' or 'not null'\n");
+							rc = INVALID_WHERE_CLAUSE_IN_SELECT;
+							cur->next->tok_value = INVALID;
+							return rc;
+						}
+					}
+					else{
+						int type_match = checkColType(tab_entry, cur->next->tok_string, cur->next->tok_value, where_col1);
+						if(type_match != 1){
+							printf("data type in where statement does not match column type\n");
+							rc = MISMATCH_TYPE_IN_WHERE_OF_SELECT;
+							cur->next->tok_value = INVALID;
+							return rc;
+						}
+					}
+
+					//check for data_value
+					if(cur->next->tok_value != EOC){
+						cur = cur->next;
+						rel_value = cur; //set equal to rel value (number, char, or 'null')
+						
+						cur = cur->next; //first where condition parse OK
+						printf("first where stmt parse OK - todo: filter\n");
+					}
+					else{
+						printf("invalid where clause. missing data value\n");
+						rc = INVALID_WHERE_CLAUSE_IN_SELECT;
+						cur->next->tok_value = INVALID;
+						return rc;
+					}
+				}
+				else{
+					printf("invalid or missing relational operator in where clause\n");
+					rc = INVALID_REL_OP_IN_WHERE_OF_SELECT;
+					cur->tok_value = INVALID;
+					return rc;
+				}
+			}//first column in first where clause found
+			else{
+				printf("column not found in table %s\n", tab_entry->table_name);
+				rc = TABLE_NOT_EXIST;
+				cur->tok_value = INVALID;
+			}
+
+			//printf("filtering on col#%d using value %s and operator of value %d\n", where_col1, rel_value, rel_op1);
+			filtered_buffer = selectRowsForValue(the_buffer, tab_entry, where_col1, rel_value, rel_op1, num_records, record_size);
+
+			/*for(int i = 0; i < num_records*record_size; i++)
+				printf("%u",filtered_buffer[i]);*/
+
+			int matches = getNumberOfMatches(the_buffer, tab_entry, where_col1, rel_value, rel_op1, num_records, record_size);
+
+			//SECOND WHERE CLAUSE
+			printf("cur is at %s\n",cur->tok_string);			
+			if(cur->tok_value == EOC){
+				if(index > 0){
+					rc = print_select_from_buffer(tab_entry, filtered_buffer, matches*record_size, matches, record_size, colArray, index);
+				}
+				else if(aggregate_func){
+					rc = print_aggregate(tab_entry, table_info, filtered_buffer, aggregate_col, aggregate_col_tok, aggregate_func, matches);
+				}
+				else{
+					rc = print_select_from_buffer(tab_entry, filtered_buffer, matches*record_size, matches, record_size);
+				}
+			}
+			else if( (cur->tok_value == K_AND) || (cur->tok_value == K_OR)){
+				int conjunction = cur->tok_value;
+			}
+			else if (cur->tok_value == K_ORDER){
+				if(cur->next->tok_value == K_BY){
+					cur = cur->next->next; //move past 'order by'
+					int order_col = columnFinder(tab_entry, cur->tok_string);
+					if(order_col > -1){
+						cur = cur->next;
+						if(cur->tok_value == EOC){
+							ordered_buffer = orderByBuffer(filtered_buffer, tab_entry, order_col, 1, record_size, matches);
+
+							if(index > 0){
+								//columns were given
+								rc = print_select_from_buffer(tab_entry, ordered_buffer, matches*record_size, matches, record_size, colArray, index);
+							}
+							else if(aggregate_func){
+								printf("aggregate function ignores order by clause\n");
+								rc = print_aggregate(tab_entry, table_info, ordered_buffer, aggregate_col, aggregate_col_tok, aggregate_func, matches);
+							}
+							else{
+								rc = print_select_from_buffer(tab_entry, ordered_buffer, matches*record_size, matches, record_size);
+							}
+						}
+						else if (cur->tok_value == K_DESC){
+							ordered_buffer = orderByBuffer(filtered_buffer, tab_entry, order_col, K_DESC, record_size, matches);
+
+							if(index > 0){
+								//columns were given
+								rc = print_select_from_buffer(tab_entry, ordered_buffer, num_records*record_size, matches, record_size, colArray, index);
+							}
+							else if(aggregate_func){
+								printf("aggregate function ignores order by clause\n");
+								rc = print_aggregate(tab_entry, table_info, ordered_buffer, aggregate_col, aggregate_col_tok, aggregate_func, matches);
+							}
+							else{
+								rc = print_select_from_buffer(tab_entry, ordered_buffer, num_records*record_size, matches, record_size);
+							}
+						}
+						else{
+							printf("invalid symbol or keyword in order by clause of select statement\n");
+							rc = INVALID_ORDER_BY_CLAUSE_IN_SELECT;
+							cur->tok_value = INVALID;
+						}
+					}
+					else{
+						printf("order by column not found in table %s\n", tab_entry->table_name);
+						rc = COLUMN_NOT_EXIST;
+						cur->tok_value = INVALID;
+					}
+				}
+				else {
+					printf("syntax error: keyword 'by' must follow keyword 'order'\n");
+					cur->next->tok_value = INVALID;
+					rc = INVALID_ORDER_BY_CLAUSE_IN_SELECT;
+					return rc;
+				}
+			}
+			else{
+				printf("unexpected keyword or symbol after where clause of select statement\n");
+				rc = UNEXPECTED_AFTER_WHERE_OF_SELECT;
+				cur->tok_value = INVALID;
+				return rc;
+			}
 		}
 		else if (cur->tok_value == K_ORDER){
 			if(cur->next->tok_value == K_BY){
@@ -1656,7 +1808,7 @@ int sem_select(token_list *t_list)
 						}
 					}
 					else if (cur->tok_value == K_DESC){
-						ordered_buffer = orderByBuffer(the_buffer, tab_entry, order_col, 1, table_info->record_size, table_info->num_records);
+						ordered_buffer = orderByBuffer(the_buffer, tab_entry, order_col, K_DESC, table_info->record_size, table_info->num_records);
 
 						if(index > 0){
 							//columns were given
@@ -1696,7 +1848,7 @@ int sem_select(token_list *t_list)
 				rc = print_select(tab_entry, colArray, index);
 			}
 			else if(aggregate_func){
-				rc = print_aggregate(tab_entry, table_info, the_buffer, aggregate_col, aggregate_col_tok, aggregate_func, table_info->num_records);
+				rc = print_aggregate(tab_entry, table_info, the_buffer, aggregate_col, aggregate_col_tok, aggregate_func, num_records);
 			}
 			else{
 				rc = print_selectAll(tab_entry);
@@ -2574,8 +2726,8 @@ int print_aggregate(tpd_entry *tab_entry, table_file_header *table_info, unsigne
 	int diff = width - (str_len + 5); //for header
 	int d = width - 12;	//for value
 
-	int row_cnt = cnt_not_null(tab_entry, table_info, buffer, column_number);
-	int sum = select_helper_math(tab_entry, table_info, buffer, column_number);
+	int row_cnt = cnt_not_null(tab_entry, table_info, buffer, column_number, num_records);
+	int sum = select_helper_math(tab_entry, table_info, buffer, column_number, num_records);
 	switch(agg_func){
 		case 36: //sum
 			if(sum < 0){
@@ -2740,11 +2892,11 @@ int select_helper(tpd_entry *tab_entry)
 	}
 }
 
-int select_helper_math(tpd_entry *tab_entry, table_file_header *table_info, unsigned char* buffer, int col_to_aggregate)
+int select_helper_math(tpd_entry *tab_entry, table_file_header *table_info, unsigned char* buffer, int col_to_aggregate, int num_records)
 {
-	int num_records = table_info->num_records;
+	//int num_records = table_info->num_records;
 	int record_size = table_info->record_size;
-	int rows_tb_size = table_info->file_size - table_info->record_offset;
+	int rows_tb_size = record_size*num_records;
 	int offset = table_info->record_offset;
 
 	int i = 0, rec_cnt = 0, rows = 1;
@@ -2788,12 +2940,12 @@ int select_helper_math(tpd_entry *tab_entry, table_file_header *table_info, unsi
 				
 }
 
-int cnt_not_null(tpd_entry *tab_entry, table_file_header *table_info, unsigned char* buffer, int col_to_cnt)
+int cnt_not_null(tpd_entry *tab_entry, table_file_header *table_info, unsigned char* buffer, int col_to_cnt, int num_records)
 {
 	int record_size = table_info->record_size;
-	int num_records = table_info->num_records;
+	//int num_records = table_info->num_records;
 	int offset = table_info->record_offset;
-	int rows_tb_size = table_info->file_size - table_info->record_offset;
+	int rows_tb_size = record_size*num_records;
 	
 	int i = 0, rec_cnt = 0, rows = 1;
 	int cnt_to_return = 0;
@@ -2820,6 +2972,21 @@ int cnt_not_null(tpd_entry *tab_entry, table_file_header *table_info, unsigned c
 	return cnt_to_return;
 				
 }
+
+unsigned char* select_where_parser(tpd_entry *tab_entry, table_file_header *table_info, unsigned char* buffer, int size_of_buffer, token_list *cur)
+{
+	unsigned char* filtered_buffer = NULL;
+	int num_records = table_info->num_records;
+	int record_size = table_info->record_size;
+	int rows_tb_size = size_of_buffer;
+	
+	
+
+
+
+	return filtered_buffer;
+}
+
 
 int select_where_parser(tpd_entry *tab_entry, token_list *t_list)
 {

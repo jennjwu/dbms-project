@@ -5813,7 +5813,6 @@ unsigned char* orderByBuffer(unsigned char* buffer, tpd_entry *tab_entry, int co
 							memcpy(&elem2, int_b2, sizeof(int));
 							//printf("  element2 is %d\n",elem2);
 
-
 							switch(order){
 								case 1: //for asc (default)
 									if(elem > elem2){
@@ -5836,7 +5835,7 @@ unsigned char* orderByBuffer(unsigned char* buffer, tpd_entry *tab_entry, int co
 							}
 						}
 						else if (col->col_type == T_CHAR){
-							/*char *str_b;
+							char *str_b;
 							int len = col->col_len + 1;
 							str_b = (char*)calloc(1, len);
 							for (int a = 0; a < len; a++)
@@ -5844,7 +5843,40 @@ unsigned char* orderByBuffer(unsigned char* buffer, tpd_entry *tab_entry, int co
 								str_b[a] = buffer[b + a];
 							}
 							str_b[len - 1] = '\0';
-							printf("%s\n", str_b);*/
+							//printf("first: %s\n", str_b);
+
+							//compare to next item
+							char *str_b2;
+							len = col->col_len + 1;
+							str_b2 = (char*)calloc(1, len);
+							for (int a = 0; a < len; a++)
+							{
+								str_b2[a] = buffer[b + a + rec_size];
+							}
+							str_b2[len - 1] = '\0';
+							//printf("  second: %s\n", str_b2);
+
+							switch(order){
+								case 1: //for asc (default)
+									if(strcmp(str_b,str_b2) > 0){
+										for(int a = 0; a < rec_size; a++){
+											temp_buffer[a] = buffer[index + a];
+											buffer[index + a] = buffer[index + a + rec_size];
+											buffer[index + a + rec_size] = temp_buffer[a];
+										}
+									}
+									break;
+								case 32: //for desc
+									if(strcmp(str_b,str_b2) < 0){
+										for(int a = 0; a < rec_size; a++){
+											temp_buffer[a] = buffer[index + a];
+											buffer[index + a] = buffer[index + a + rec_size];
+											buffer[index + a + rec_size] = temp_buffer[a];
+										}
+									}
+									break;
+							}							
+
 						}
 						break;
 					}

@@ -3337,15 +3337,15 @@ int select_where_parser(tpd_entry *tab_entry, token_list *t_list)
 									if(order_col > -1){
 										cur = cur->next;
 										if(cur->tok_value == EOC){
-											ordered_buffer = orderByBuffer(second_filter_buffer, tab_entry, order_col,1,table_info->record_size, table_info->num_records);
+											ordered_buffer = orderByBuffer(second_filter_buffer, tab_entry, order_col,1,table_info->record_size, matches2);
 
-											rc = print_select_from_buffer(tab_entry, ordered_buffer, table_info->num_records*table_info->record_size, table_info->num_records, table_info->record_size);
+											rc = print_select_from_buffer(tab_entry, ordered_buffer, matches2*table_info->record_size, matches2, table_info->record_size);
 
 										}
 										else if (cur->tok_value == K_DESC){
-											ordered_buffer = orderByBuffer(second_filter_buffer, tab_entry, order_col,K_DESC,table_info->record_size, table_info->num_records);
+											ordered_buffer = orderByBuffer(second_filter_buffer, tab_entry, order_col,K_DESC,table_info->record_size, matches2);
 
-											rc = print_select_from_buffer(tab_entry, ordered_buffer, table_info->num_records*table_info->record_size, table_info->num_records, table_info->record_size);
+											rc = print_select_from_buffer(tab_entry, ordered_buffer, matches2*table_info->record_size, matches2, table_info->record_size);
 
 										}
 										else{
@@ -3388,12 +3388,14 @@ int select_where_parser(tpd_entry *tab_entry, token_list *t_list)
 									if(order_col > -1){
 										cur = cur->next;
 										if(cur->tok_value == EOC){
-											printf("TODO: need to print in asc order by col# %d\n", order_col);
+											ordered_buffer = orderByBuffer(second_filter_buffer, tab_entry, order_col,1,table_info->record_size, matches2);
 
+											rc = print_select_from_buffer(tab_entry, ordered_buffer, matches2*table_info->record_size, matches2, table_info->record_size);
 										}
 										else if (cur->tok_value == K_DESC){
-											printf("TODO: need to print in asc order by col# %d\n", order_col);
+											ordered_buffer = orderByBuffer(second_filter_buffer, tab_entry, order_col,K_DESC,table_info->record_size, matches2);
 
+											rc = print_select_from_buffer(tab_entry, ordered_buffer, matches2*table_info->record_size, matches2, table_info->record_size);
 										}
 										else{
 											printf("invalid symbol or keyword in order by clause of select statement\n");
@@ -3432,11 +3434,15 @@ int select_where_parser(tpd_entry *tab_entry, token_list *t_list)
 									if(order_col > -1){
 										cur = cur->next;
 										if(cur->tok_value == EOC){
-											printf("TODO: need to print in asc order by col# %d\n", order_col);
+											ordered_buffer = orderByBuffer(second_filter_buffer, tab_entry, order_col,1,table_info->record_size, matches2);
+
+											rc = print_select_from_buffer(tab_entry, ordered_buffer, matches2*table_info->record_size, matches2, table_info->record_size);
 
 										}
 										else if (cur->tok_value == K_DESC){
-											printf("TODO: need to print in asc order by col# %d\n", order_col);
+											ordered_buffer = orderByBuffer(second_filter_buffer, tab_entry, order_col,K_DESC,table_info->record_size, matches2);
+
+											rc = print_select_from_buffer(tab_entry, ordered_buffer, matches2*table_info->record_size, matches2, table_info->record_size);
 
 										}
 										else{
@@ -3526,6 +3532,8 @@ int select_where_parser(tpd_entry *tab_entry, token_list *t_list)
 			{
 				token_list* null_ptr = cur;
 				cur = cur->next; //move to next token
+				filtered_buffer = selectRowsForValue(the_buffer, tab_entry, col_found, null_ptr, K_IS, num_records, record_size);
+				int matches = getNumberOfMatches(the_buffer, tab_entry, col_found, null_ptr, K_IS, num_records, record_size);
 
 				//SECOND WHERE CLAUSE
 				if(cur->tok_value== K_AND){
@@ -3569,12 +3577,14 @@ int select_where_parser(tpd_entry *tab_entry, token_list *t_list)
 									if(order_col > -1){
 										cur = cur->next;
 										if(cur->tok_value == EOC){
-											printf("TODO: need to print in asc order by col# %d\n", order_col);
+											ordered_buffer = orderByBuffer(second_filter_buffer, tab_entry, order_col,1,table_info->record_size, matches2);
 
+											rc = print_select_from_buffer(tab_entry, ordered_buffer, matches2*table_info->record_size, matches2, table_info->record_size);
 										}
 										else if (cur->tok_value == K_DESC){
-											printf("TODO: need to print in asc order by col# %d\n", order_col);
+											ordered_buffer = orderByBuffer(second_filter_buffer, tab_entry, order_col,K_DESC,table_info->record_size, matches2);
 
+											rc = print_select_from_buffer(tab_entry, ordered_buffer, matches2*table_info->record_size, matches2, table_info->record_size);
 										}
 										else{
 											printf("invalid symbol or keyword in order by clause of select statement\n");
@@ -3616,11 +3626,15 @@ int select_where_parser(tpd_entry *tab_entry, token_list *t_list)
 									if(order_col > -1){
 										cur = cur->next;
 										if(cur->tok_value == EOC){
-											printf("TODO: need to print in asc order by col# %d\n", order_col);
+											ordered_buffer = orderByBuffer(second_filter_buffer, tab_entry, order_col,1,table_info->record_size, matches2);
+
+											rc = print_select_from_buffer(tab_entry, ordered_buffer, matches2*table_info->record_size, matches2, table_info->record_size);
 
 										}
 										else if (cur->tok_value == K_DESC){
-											printf("TODO: need to print in asc order by col# %d\n", order_col);
+											ordered_buffer = orderByBuffer(second_filter_buffer, tab_entry, order_col,K_DESC,table_info->record_size, matches2);
+
+											rc = print_select_from_buffer(tab_entry, ordered_buffer, matches2*table_info->record_size, matches2, table_info->record_size);
 
 										}
 										else{
@@ -3660,11 +3674,15 @@ int select_where_parser(tpd_entry *tab_entry, token_list *t_list)
 									if(order_col > -1){
 										cur = cur->next;
 										if(cur->tok_value == EOC){
-											printf("TODO: need to print in asc order by col# %d\n", order_col);
+											ordered_buffer = orderByBuffer(second_filter_buffer, tab_entry, order_col,1,table_info->record_size, matches2);
+
+											rc = print_select_from_buffer(tab_entry, ordered_buffer, matches2*table_info->record_size, matches2, table_info->record_size);
 
 										}
 										else if (cur->tok_value == K_DESC){
-											printf("TODO: need to print in asc order by col# %d\n", order_col);
+											ordered_buffer = orderByBuffer(second_filter_buffer, tab_entry, order_col,K_DESC,table_info->record_size, matches2);
+
+											rc = print_select_from_buffer(tab_entry, ordered_buffer, matches2*table_info->record_size, matches2, table_info->record_size);
 
 										}
 										else{
@@ -3709,12 +3727,35 @@ int select_where_parser(tpd_entry *tab_entry, token_list *t_list)
 				}
 				else if ( (cur->tok_value == K_ORDER) && (cur->next->tok_value == K_BY))
 				{
+					cur = cur->next->next; //move past 'order' and 'by'
+					int order_col = columnFinder(tab_entry, cur->tok_string);
+					if(order_col > -1){
+						cur = cur->next;
+						if(cur->tok_value == EOC){
+							ordered_buffer = orderByBuffer(filtered_buffer, tab_entry, order_col,1,table_info->record_size, matches);
 
+							rc = print_select_from_buffer(tab_entry, ordered_buffer, matches*record_size, matches, record_size);
+
+						}
+						else if (cur->tok_value == K_DESC){
+							ordered_buffer = orderByBuffer(filtered_buffer, tab_entry, order_col,K_DESC,table_info->record_size, matches);
+
+							rc = print_select_from_buffer(tab_entry, ordered_buffer, matches*record_size, matches, record_size);
+						}
+						else{
+							printf("invalid symbol or keyword in order by clause of select statement\n");
+							rc = INVALID_ORDER_BY_CLAUSE_IN_SELECT;
+							cur->tok_value = INVALID;
+						}
+					}
+					else{
+						printf("order by column not found in table %s\n", tab_entry->table_name);
+						rc = COLUMN_NOT_EXIST;
+						cur->tok_value = INVALID;
+					}
 				}
 				else if (cur->tok_value == EOC)
 				{
-					filtered_buffer = selectRowsForValue(the_buffer, tab_entry, col_found, null_ptr, K_IS, num_records, record_size);
-					int matches = getNumberOfMatches(the_buffer, tab_entry, col_found, null_ptr, K_IS, num_records, record_size);
 					rc = print_from_buffer(tab_entry, filtered_buffer, matches*record_size, record_size, matches);
 				}
 				else{
@@ -3727,6 +3768,8 @@ int select_where_parser(tpd_entry *tab_entry, token_list *t_list)
 			{
 				token_list* null_ptr = cur->next;
 				cur = cur->next; //move to NULL keyword
+				filtered_buffer = selectRowsForValue(the_buffer, tab_entry, col_found, null_ptr, K_NOT, num_records, record_size);
+				int matches = getNumberOfMatches(the_buffer, tab_entry, col_found, null_ptr, K_NOT, num_records, record_size);
 				if(cur->next->tok_value== K_AND){
 					//there is another clause to evaluate
 					//int which = cur->next->tok_value; //34 is and -- 35 is or
@@ -3768,12 +3811,14 @@ int select_where_parser(tpd_entry *tab_entry, token_list *t_list)
 									if(order_col > -1){
 										cur = cur->next;
 										if(cur->tok_value == EOC){
-											printf("TODO: need to print in asc order by col# %d\n", order_col);
+											ordered_buffer = orderByBuffer(second_filter_buffer, tab_entry, order_col,1,table_info->record_size, matches2);
 
+											rc = print_select_from_buffer(tab_entry, ordered_buffer, matches2*table_info->record_size, matches2, table_info->record_size);
 										}
 										else if (cur->tok_value == K_DESC){
-											printf("TODO: need to print in asc order by col# %d\n", order_col);
+											ordered_buffer = orderByBuffer(second_filter_buffer, tab_entry, order_col,K_DESC,table_info->record_size, matches2);
 
+											rc = print_select_from_buffer(tab_entry, ordered_buffer, matches2*table_info->record_size, matches2, table_info->record_size);
 										}
 										else{
 											printf("invalid symbol or keyword in order by clause of select statement\n");
@@ -3815,11 +3860,15 @@ int select_where_parser(tpd_entry *tab_entry, token_list *t_list)
 									if(order_col > -1){
 										cur = cur->next;
 										if(cur->tok_value == EOC){
-											printf("TODO: need to print in asc order by col# %d\n", order_col);
+											ordered_buffer = orderByBuffer(second_filter_buffer, tab_entry, order_col,1,table_info->record_size, matches2);
+
+											rc = print_select_from_buffer(tab_entry, ordered_buffer, matches2*table_info->record_size, matches2, table_info->record_size);
 
 										}
 										else if (cur->tok_value == K_DESC){
-											printf("TODO: need to print in asc order by col# %d\n", order_col);
+											ordered_buffer = orderByBuffer(second_filter_buffer, tab_entry, order_col,K_DESC,table_info->record_size, matches2);
+
+											rc = print_select_from_buffer(tab_entry, ordered_buffer, matches2*table_info->record_size, matches2, table_info->record_size);
 
 										}
 										else{
@@ -3859,11 +3908,15 @@ int select_where_parser(tpd_entry *tab_entry, token_list *t_list)
 									if(order_col > -1){
 										cur = cur->next;
 										if(cur->tok_value == EOC){
-											printf("TODO: need to print in asc order by col# %d\n", order_col);
+											ordered_buffer = orderByBuffer(second_filter_buffer, tab_entry, order_col,1,table_info->record_size, matches2);
+
+											rc = print_select_from_buffer(tab_entry, ordered_buffer, matches2*table_info->record_size, matches2, table_info->record_size);
 
 										}
 										else if (cur->tok_value == K_DESC){
-											printf("TODO: need to print in asc order by col# %d\n", order_col);
+											ordered_buffer = orderByBuffer(second_filter_buffer, tab_entry, order_col,K_DESC,table_info->record_size, matches2);
+
+											rc = print_select_from_buffer(tab_entry, ordered_buffer, matches2*table_info->record_size, matches2, table_info->record_size);
 
 										}
 										else{
@@ -3904,16 +3957,39 @@ int select_where_parser(tpd_entry *tab_entry, token_list *t_list)
 					}
 				}
 				else if(cur->next->tok_value == K_OR){
-					
+					printf("TODO: need to figure out OR....\n");
 				}
 				else if ( (cur->next->tok_value == K_ORDER) && (cur->next->next->tok_value == K_BY))
 				{
-					
+					cur = cur->next->next; //move past 'order' and 'by'
+					int order_col = columnFinder(tab_entry, cur->tok_string);
+					if(order_col > -1){
+						cur = cur->next;
+						if(cur->tok_value == EOC){
+							ordered_buffer = orderByBuffer(filtered_buffer, tab_entry, order_col,1,table_info->record_size, matches);
+
+							rc = print_select_from_buffer(tab_entry, ordered_buffer, matches*record_size, matches, record_size);
+
+						}
+						else if (cur->tok_value == K_DESC){
+							ordered_buffer = orderByBuffer(filtered_buffer, tab_entry, order_col,K_DESC,table_info->record_size, matches);
+
+							rc = print_select_from_buffer(tab_entry, ordered_buffer, matches*record_size, matches, record_size);
+						}
+						else{
+							printf("invalid symbol or keyword in order by clause of select statement\n");
+							rc = INVALID_ORDER_BY_CLAUSE_IN_SELECT;
+							cur->tok_value = INVALID;
+						}
+					}
+					else{
+						printf("order by column not found in table %s\n", tab_entry->table_name);
+						rc = COLUMN_NOT_EXIST;
+						cur->tok_value = INVALID;
+					}
 				}
 				else if (cur->next->tok_value == EOC)
 				{	//one where clause only
-					filtered_buffer = selectRowsForValue(the_buffer, tab_entry, col_found, null_ptr, K_NOT, num_records, record_size);
-					int matches = getNumberOfMatches(the_buffer, tab_entry, col_found, null_ptr, K_NOT, num_records, record_size);
 					rc = print_from_buffer(tab_entry, filtered_buffer, matches*record_size, record_size, matches);
 				}
 				else

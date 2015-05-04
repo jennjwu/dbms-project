@@ -1666,7 +1666,7 @@ int sem_select(token_list *t_list)
 					else{
 						int type_match = checkColType(tab_entry, cur->next->tok_string, cur->next->tok_value, where_col1);
 						if(type_match != 1){
-							printf("data type in where statement does not match column type\n");
+							printf("data type in where statement does not match column type (too long/too large)\n");
 							rc = MISMATCH_TYPE_IN_WHERE_OF_SELECT;
 							cur->next->tok_value = INVALID;
 							return rc;
@@ -1706,7 +1706,7 @@ int sem_select(token_list *t_list)
 			int matches = getNumberOfMatches(the_buffer, tab_entry, where_col1, rel_value, rel_op1, num_records, record_size);
 
 			//AFTER FIRST WHERE CLAUSE
-			printf("cur is at %s\n",cur->tok_string);			
+			//printf("cur is at %s\n",cur->tok_string);			
 			if(cur->tok_value == EOC){
 				if(index > 0){
 					rc = print_select_from_buffer(tab_entry, filtered_buffer, matches*record_size, matches, record_size, colArray, index);
@@ -1748,7 +1748,7 @@ int sem_select(token_list *t_list)
 							else{
 								int type_match = checkColType(tab_entry, cur->next->tok_string, cur->next->tok_value, where_col2);
 								if(type_match != 1){
-									printf("data type in where statement does not match column type\n");
+									printf("data type in where statement does not match column type (too long/too large)\n");
 									rc = MISMATCH_TYPE_IN_WHERE_OF_SELECT;
 									cur->next->tok_value = INVALID;
 									return rc;
@@ -2017,6 +2017,427 @@ int sem_select(token_list *t_list)
 	return rc;
 }
 
+int sem_delete(token_list *t_list)
+{
+	int rc = 0;
+	token_list *cur;
+	tpd_entry *tab_entry = NULL;
+	table_file_header *recs = NULL;
+
+	token_list *delete_token = NULL;	//token for delete
+	int where_col_no; 					//column in where condition
+	int rel_op; 						//relational operator in where condition
+	bool has_where = false;				//flag to perform where check or not
+
+	cur = t_list;
+	cur = cur->next; //move past FROM keyword
+	if ((cur->tok_class != keyword) && (cur->tok_class != identifier) &&
+			(cur->tok_class != type_name))
+	{ 	//Error
+		printf("invalid delete statement\n");
+		rc = INVALID_DELETE_STATEMENT;
+		cur->tok_value = INVALID;
+	}
+	else
+	{ 	//identifier found - check that table exists
+		if ((tab_entry = get_tpd_from_list(cur->tok_string)) == NULL)
+		{
+			printf("cannot delete from nonexistent table\n");
+			rc = TABLE_NOT_EXIST;
+			cur->tok_value = INVALID;
+		}
+		else
+		{
+			cur = cur->next;
+			if(cur->tok_value != EOC)
+			{
+				if(cur->tok_value == K_WHERE)
+				{
+					has_where = true;
+					if(cur->next->tok_value != EOC)
+					{
+						cur = cur->next;
+
+						//get column names and check if cur->string matches
+						where_col_no = columnFinder(tab_entry, cur->tok_string);
+						if(where_col_no > -1)
+						{
+							cur = cur->next;
+							if((cur->tok_value == S_EQUAL) || (cur->tok_value == S_LESS) || (cur->tok_value == S_GREATER))
+							{
+								rel_op = cur->tok_value;
+								cur = cur->next; //move past relational operator
+								if((cur->tok_value != INT_LITERAL) && (cur->tok_value != STRING_LITERAL) && (cur->tok_value != K_NULL))
+								{
+									printf("invalid type value in where clause. only string literals, int literals, and 'null' are supported.\n");
+									rc = INVALID_TYPE_IN_WHERE_OF_DELETE;
+									cur->tok_value = INVALID;
+									return rc;
+								}
+								else 
+								{
+									int where_match = checkColType(tab_entry, cur->tok_string, cur->tok_value, where_col_no);
+									//returns -1 for type mismatch, 1 or 0 for proper size of char and int
+									if(where_match != 1)
+									{ //not a type match
+										printf("type in where statement does not match column type\n");
+										rc = MISMATCH_TYPE_IN_WHERE_OF_DELETE;
+										cur->tok_value = INVALID;
+										return rc;
+									}
+									else
+									{
+										if(cur->next->tok_value != EOC)
+										{
+											printf("invalid clause after where clause of update\n");
+											rc = INVALID_UPDATE_STATEMENT;
+											cur->next->tok_value = INVALID;
+										}
+										//else - parse ok
+									}//match ok in where clause
+								}//valid type in where clause
+							}
+							else
+							{
+								printf("invalid relational operator found. only <, =, and > are supported\n");
+								rc = INVALID_REL_COMP_IN_WHERE_IN_DELETE;
+								cur->tok_value = INVALID;
+							}
+						}//column in where found in table
+						else
+						{
+							printf("no matching column in table from where clause to select for deletion\n");
+							rc = INVALID_COLUMN_NAME;
+							cur->tok_value = INVALID;
+						}
+					}//tokens after where found
+					else
+					{
+						printf("improper use of the keyword 'where'. a clause must follow\n");
+						rc = INVALID_WHERE_CLAUSE_IN_DELETE;
+						cur->tok_value = INVALID;
+					}
+				}//where keyword found
+				else
+				{
+					printf("invalid delete statement after table name\n");
+					rc = INVALID_DELETE_STATEMENT;
+					cur->tok_value = INVALID;
+				}
+			}
+		}//end else for table exists
+	}//end else for identifier found
+
+	if(!rc)
+	{
+		if(has_where)
+		{
+			int to_delete = checkRowsForDelete(tab_entry, rel_op, cur, where_col_no);
+			switch(to_delete)
+			{
+				case -1:
+					rc = FILE_OPEN_ERROR;
+					break;
+				case -2:
+					rc = MEMORY_ERROR;
+					break;
+				case -3:
+					rc = DBFILE_CORRUPTION;
+					break;
+				case 0:
+					printf("no matching rows to delete\n");
+					rc = NO_MATCHING_ROWS_TO_DELETE;
+					cur->tok_value = INVALID;
+					break;
+			}
+			//printf("number rows matching to delete is %d\n", to_delete);
+		}
+		else
+		{
+			int delete_item = deleteHelper(tab_entry->table_name);
+			switch(delete_item)
+			{
+				case -1:
+					rc = FILE_OPEN_ERROR;
+					break;
+				case -2:
+					rc = MEMORY_ERROR;
+					break;
+			}
+		}
+	}
+
+	return rc;
+}
+
+int sem_update(token_list *t_list)
+{
+	int rc = 0;
+	token_list *cur;
+	tpd_entry *tab_entry = NULL;
+	struct _stat file_stat;
+	table_file_header *recs = NULL;
+	
+	//for update stmt
+	int column_num; 					//column to update
+	token_list *update_token = NULL;	//token for update
+	int where_col_no; 					//column in where condition
+	int rel_op; 						//relational operator in where condition
+	bool has_where = false;				//flag to perform where check or not
+	
+	cur = t_list;
+	if ((cur->tok_class != keyword) && (cur->tok_class != identifier) &&
+			(cur->tok_class != type_name))
+	{ 	//Error
+		printf("invalid update statement\n");
+		rc = INVALID_UPDATE_STATEMENT;
+		cur->tok_value = INVALID;
+		return rc;
+	}
+	else
+	{	//identifier found - check that table exists
+		if ((tab_entry = get_tpd_from_list(cur->tok_string)) == NULL)
+		{
+			printf("cannot update nonexistent table\n");
+			rc = TABLE_NOT_EXIST;
+			cur->tok_value = INVALID;
+			return rc;
+		}//table does not exist
+		else
+		{
+			cur = cur->next;
+			if(cur->tok_value == K_SET)
+			{
+				cur = cur->next; //move to column name
+				if(cur->tok_value != EOC)
+				{
+					column_num = columnFinder(tab_entry, cur->tok_string);
+					if(column_num > -1)
+					{
+						cur = cur->next;
+						if(cur->tok_value != S_EQUAL)
+						{
+							printf("invalid update statement. must set a column = to a value\n");
+							rc = INVALID_REL_OP_IN_UPDATE;
+							cur->tok_value = INVALID;
+						}
+						else
+						{
+							cur = cur->next;
+							if((cur->tok_value != INT_LITERAL) && (cur->tok_value != STRING_LITERAL) && (cur->tok_value != K_NULL))
+							{
+								printf("invalid update value. only string literals, int literals, and 'null' are supported.\n");
+								rc = INVALID_UPDATE_TYPE;
+								cur->tok_value = INVALID;
+								return rc;
+							}
+							else 
+							{
+								int type_match = checkColType(tab_entry, cur->tok_string, cur->tok_value, column_num);
+								//returns -1 for type mismatch, 1 or 0 for proper size of char and int
+								if(type_match != 1)
+								{ //not a type match
+									switch(type_match)
+									{
+										case -2:
+											printf("not null constraint\n");
+											rc = UPDATE_NOT_NULL_CONSTRAINT;
+											break;
+										case -1:
+											printf("update value does not match column type\n");
+											rc = UPDATE_TYPE_MISMATCH;
+											break;
+										case 0:
+											if(cur->tok_value == INT_LITERAL)
+											{
+												printf("integer size error\n");
+												rc = UPDATE_INT_SIZE_FAILURE;
+											}
+											else if(cur->tok_value == STRING_LITERAL)
+											{
+												printf("update char length error\n");
+												rc = UPDATE_CHAR_LEN_MISMATCH;
+											}
+											break;
+									}
+									cur->tok_value = INVALID;
+									return rc;
+								}
+								else
+								{
+									update_token = cur; //pointer to token for use in update
+									cur = cur->next;
+									if(cur->tok_value != EOC)
+									{
+										//printf("continue parsing\n");
+										if (cur->tok_value == K_WHERE)
+										{
+											has_where = true;
+											cur = cur->next;
+											where_col_no = columnFinder(tab_entry, cur->tok_string);
+											if(where_col_no > -1)
+											{
+												cur = cur->next;
+												if((cur->tok_value == S_EQUAL) || (cur->tok_value == S_LESS) || (cur->tok_value == S_GREATER))
+												{
+													rel_op = cur->tok_value;
+													cur = cur->next; //move past relational operator
+													if((cur->tok_value != INT_LITERAL) && (cur->tok_value != STRING_LITERAL) && (cur->tok_value != K_NULL))
+													{
+														printf("invalid type value in where clause. only string literals, int literals, and 'null' are supported.\n");
+														rc = INVALID_TYPE_IN_WHERE_OF_UPDATE;
+														cur->tok_value = INVALID;
+														return rc;
+													}
+													else 
+													{
+														int where_match = checkColType(tab_entry, cur->tok_string, cur->tok_value, where_col_no);
+														//returns -1 for type mismatch, 1 or 0 for proper size of char and int
+														if(where_match != 1)
+														{ //not a type match
+															switch(where_match)
+															{
+																case -2: //null in where clause but column cannot be null'ed	
+																	printf("column in where cannot be set to null, so no matching rows to update\n");
+																	rc = UPDATE_NOT_NULL_CONSTRAINT;
+																	break;
+																case -1:
+																	printf("type in where statement does not match column type\n");
+																	rc = MISMATCH_TYPE_IN_WHERE_OF_UPDATE;
+																	break;
+																case 0:
+																	if(cur->tok_value == INT_LITERAL)
+																	{
+																		printf("integer size error\n");
+																		rc = UPDATE_INT_SIZE_FAILURE;
+																	}
+																	else if(cur->tok_value == STRING_LITERAL)
+																	{
+																		printf("update char length error\n");
+																		rc = UPDATE_CHAR_LEN_MISMATCH;
+																	}
+																	break;
+															}
+															cur->tok_value = INVALID;
+															return rc;
+														}
+														else
+														{
+															if(cur->next->tok_value != EOC)
+															{
+																printf("invalid clause after where clause of update\n");
+																rc = INVALID_UPDATE_STATEMENT;
+																cur->next->tok_value = INVALID;
+															}
+															//else - parse ok
+														}//match ok in where clause
+													}//data value in where clause is right type
+												}//valid relational operator
+												else
+												{
+													printf("invalid relational operator found. only <, =, and > are supported\n");
+													rc = INVALID_REL_OP_IN_UPDATE;
+													cur->tok_value = INVALID;
+												}
+											}//column name in where clause found
+											else
+											{
+												printf("no matching column in where clause of update statement\n");
+												rc = NO_MATCHING_COL_IN_WHERE_OF_UPDATE;
+												cur->tok_value = INVALID;
+											}
+										}
+										else
+										{
+											printf("invalid update statement after set clause\n");
+											rc = INVALID_UPDATE_STATEMENT;
+											cur->tok_value = INVALID;
+										}
+									}//there is a where clause
+									//else - parse ok
+								}
+									
+							}//valid input value type
+						}//equal sign found
+					}//column name found
+					else
+					{
+						printf("no matching column to update\n");
+						rc = NO_MATCHING_COL_TO_UPDATE;
+						cur->tok_value = INVALID;
+						return rc;
+					}
+				}//values after set keyword
+				else
+				{
+					printf("invalid update statement. missing column to set\n");
+					rc = INVALID_UPDATE_STATEMENT;
+					cur->tok_value = INVALID;
+					return rc;
+				}//missing column name
+			}
+			else 
+			{
+				printf("invalid update statement. missing set clause\n");
+				rc = INVALID_UPDATE_STATEMENT;
+				cur->tok_value = INVALID;
+				return rc;
+			}//missing set keyword
+		}//end else for table exists
+	}
+
+	if (!rc)
+	{
+		//printf("update statement parsed ok\n");
+		if(has_where)
+		{
+			//printf("do the update here!\n");
+			//printf("col to update is number %d and update value is: %s\n", column_num, update_token->tok_string);
+			//printf("col to check in where is number %d and value is %s\n", where_col_no, cur->tok_string);
+			//printf("need to check that a row has value in where clause\n");
+			int ok_to_update = checkRowsForValue(tab_entry, column_num, update_token, rel_op, cur, where_col_no);
+			switch(ok_to_update)
+			{
+				case -3:
+					rc = DBFILE_CORRUPTION;
+					break;
+				case -2:
+					rc = MEMORY_ERROR;
+					break;
+				case -1:
+					rc = FILE_OPEN_ERROR;
+					break;
+				case 0:
+					printf("no matching rows with given value in where clause found\n");
+					rc = NO_MATCHING_ROW_TO_UPDATE;
+					cur->tok_value = INVALID;
+					break;
+				default:
+					;//printf("match found"); //match found - update is a go
+			}
+
+		}//has where clause
+		else
+		{	//no where clause, update all rows
+			int update = updateHelper(tab_entry, column_num, update_token);
+			switch(update)
+			{
+				case -1:
+					rc = FILE_OPEN_ERROR;
+					break;
+				case -2:
+					rc = MEMORY_ERROR;
+					break;
+			}
+
+			//printf("update token is %s and token_value is %d\n", update_token->tok_string, update_token->tok_value);
+		}//no where clause, update all rows
+	}
+
+	return rc;
+}
+
+/*helper functions*/
 int checkAggregateSyntax(tpd_entry *tab_entry, token_list *agg_col)
 {
 	int rc = 0;
@@ -3124,426 +3545,6 @@ int cnt_not_null(tpd_entry *tab_entry, table_file_header *table_info, unsigned c
 	}//end while
 	return cnt_to_return;
 				
-}
-
-int sem_delete(token_list *t_list)
-{
-	int rc = 0;
-	token_list *cur;
-	tpd_entry *tab_entry = NULL;
-	table_file_header *recs = NULL;
-
-	token_list *delete_token = NULL;	//token for delete
-	int where_col_no; 					//column in where condition
-	int rel_op; 						//relational operator in where condition
-	bool has_where = false;				//flag to perform where check or not
-
-	cur = t_list;
-	cur = cur->next; //move past FROM keyword
-	if ((cur->tok_class != keyword) && (cur->tok_class != identifier) &&
-			(cur->tok_class != type_name))
-	{ 	//Error
-		printf("invalid delete statement\n");
-		rc = INVALID_DELETE_STATEMENT;
-		cur->tok_value = INVALID;
-	}
-	else
-	{ 	//identifier found - check that table exists
-		if ((tab_entry = get_tpd_from_list(cur->tok_string)) == NULL)
-		{
-			printf("cannot delete from nonexistent table\n");
-			rc = TABLE_NOT_EXIST;
-			cur->tok_value = INVALID;
-		}
-		else
-		{
-			cur = cur->next;
-			if(cur->tok_value != EOC)
-			{
-				if(cur->tok_value == K_WHERE)
-				{
-					has_where = true;
-					if(cur->next->tok_value != EOC)
-					{
-						cur = cur->next;
-
-						//get column names and check if cur->string matches
-						where_col_no = columnFinder(tab_entry, cur->tok_string);
-						if(where_col_no > -1)
-						{
-							cur = cur->next;
-							if((cur->tok_value == S_EQUAL) || (cur->tok_value == S_LESS) || (cur->tok_value == S_GREATER))
-							{
-								rel_op = cur->tok_value;
-								cur = cur->next; //move past relational operator
-								if((cur->tok_value != INT_LITERAL) && (cur->tok_value != STRING_LITERAL) && (cur->tok_value != K_NULL))
-								{
-									printf("invalid type value in where clause. only string literals, int literals, and 'null' are supported.\n");
-									rc = INVALID_TYPE_IN_WHERE_OF_DELETE;
-									cur->tok_value = INVALID;
-									return rc;
-								}
-								else 
-								{
-									int where_match = checkColType(tab_entry, cur->tok_string, cur->tok_value, where_col_no);
-									//returns -1 for type mismatch, 1 or 0 for proper size of char and int
-									if(where_match != 1)
-									{ //not a type match
-										printf("type in where statement does not match column type\n");
-										rc = MISMATCH_TYPE_IN_WHERE_OF_DELETE;
-										cur->tok_value = INVALID;
-										return rc;
-									}
-									else
-									{
-										if(cur->next->tok_value != EOC)
-										{
-											printf("invalid clause after where clause of update\n");
-											rc = INVALID_UPDATE_STATEMENT;
-											cur->next->tok_value = INVALID;
-										}
-										//else - parse ok
-									}//match ok in where clause
-								}//valid type in where clause
-							}
-							else
-							{
-								printf("invalid relational operator found. only <, =, and > are supported\n");
-								rc = INVALID_REL_COMP_IN_WHERE_IN_DELETE;
-								cur->tok_value = INVALID;
-							}
-						}//column in where found in table
-						else
-						{
-							printf("no matching column in table from where clause to select for deletion\n");
-							rc = INVALID_COLUMN_NAME;
-							cur->tok_value = INVALID;
-						}
-					}//tokens after where found
-					else
-					{
-						printf("improper use of the keyword 'where'. a clause must follow\n");
-						rc = INVALID_WHERE_CLAUSE_IN_DELETE;
-						cur->tok_value = INVALID;
-					}
-				}//where keyword found
-				else
-				{
-					printf("invalid delete statement after table name\n");
-					rc = INVALID_DELETE_STATEMENT;
-					cur->tok_value = INVALID;
-				}
-			}
-		}//end else for table exists
-	}//end else for identifier found
-
-	if(!rc)
-	{
-		if(has_where)
-		{
-			int to_delete = checkRowsForDelete(tab_entry, rel_op, cur, where_col_no);
-			switch(to_delete)
-			{
-				case -1:
-					rc = FILE_OPEN_ERROR;
-					break;
-				case -2:
-					rc = MEMORY_ERROR;
-					break;
-				case -3:
-					rc = DBFILE_CORRUPTION;
-					break;
-				case 0:
-					printf("no matching rows to delete\n");
-					rc = NO_MATCHING_ROWS_TO_DELETE;
-					cur->tok_value = INVALID;
-					break;
-			}
-			//printf("number rows matching to delete is %d\n", to_delete);
-		}
-		else
-		{
-			int delete_item = deleteHelper(tab_entry->table_name);
-			switch(delete_item)
-			{
-				case -1:
-					rc = FILE_OPEN_ERROR;
-					break;
-				case -2:
-					rc = MEMORY_ERROR;
-					break;
-			}
-		}
-	}
-
-	return rc;
-}
-
-int sem_update(token_list *t_list)
-{
-	int rc = 0;
-	token_list *cur;
-	tpd_entry *tab_entry = NULL;
-	struct _stat file_stat;
-	table_file_header *recs = NULL;
-	
-	//for update stmt
-	int column_num; 					//column to update
-	token_list *update_token = NULL;	//token for update
-	int where_col_no; 					//column in where condition
-	int rel_op; 						//relational operator in where condition
-	bool has_where = false;				//flag to perform where check or not
-	
-	cur = t_list;
-	if ((cur->tok_class != keyword) && (cur->tok_class != identifier) &&
-			(cur->tok_class != type_name))
-	{ 	//Error
-		printf("invalid update statement\n");
-		rc = INVALID_UPDATE_STATEMENT;
-		cur->tok_value = INVALID;
-		return rc;
-	}
-	else
-	{	//identifier found - check that table exists
-		if ((tab_entry = get_tpd_from_list(cur->tok_string)) == NULL)
-		{
-			printf("cannot update nonexistent table\n");
-			rc = TABLE_NOT_EXIST;
-			cur->tok_value = INVALID;
-			return rc;
-		}//table does not exist
-		else
-		{
-			cur = cur->next;
-			if(cur->tok_value == K_SET)
-			{
-				cur = cur->next; //move to column name
-				if(cur->tok_value != EOC)
-				{
-					column_num = columnFinder(tab_entry, cur->tok_string);
-					if(column_num > -1)
-					{
-						cur = cur->next;
-						if(cur->tok_value != S_EQUAL)
-						{
-							printf("invalid update statement. must set a column = to a value\n");
-							rc = INVALID_REL_OP_IN_UPDATE;
-							cur->tok_value = INVALID;
-						}
-						else
-						{
-							cur = cur->next;
-							if((cur->tok_value != INT_LITERAL) && (cur->tok_value != STRING_LITERAL) && (cur->tok_value != K_NULL))
-							{
-								printf("invalid update value. only string literals, int literals, and 'null' are supported.\n");
-								rc = INVALID_UPDATE_TYPE;
-								cur->tok_value = INVALID;
-								return rc;
-							}
-							else 
-							{
-								int type_match = checkColType(tab_entry, cur->tok_string, cur->tok_value, column_num);
-								//returns -1 for type mismatch, 1 or 0 for proper size of char and int
-								if(type_match != 1)
-								{ //not a type match
-									switch(type_match)
-									{
-										case -2:
-											printf("not null constraint\n");
-											rc = UPDATE_NOT_NULL_CONSTRAINT;
-											break;
-										case -1:
-											printf("update value does not match column type\n");
-											rc = UPDATE_TYPE_MISMATCH;
-											break;
-										case 0:
-											if(cur->tok_value == INT_LITERAL)
-											{
-												printf("integer size error\n");
-												rc = UPDATE_INT_SIZE_FAILURE;
-											}
-											else if(cur->tok_value == STRING_LITERAL)
-											{
-												printf("update char length error\n");
-												rc = UPDATE_CHAR_LEN_MISMATCH;
-											}
-											break;
-									}
-									cur->tok_value = INVALID;
-									return rc;
-								}
-								else
-								{
-									update_token = cur; //pointer to token for use in update
-									cur = cur->next;
-									if(cur->tok_value != EOC)
-									{
-										//printf("continue parsing\n");
-										if (cur->tok_value == K_WHERE)
-										{
-											has_where = true;
-											cur = cur->next;
-											where_col_no = columnFinder(tab_entry, cur->tok_string);
-											if(where_col_no > -1)
-											{
-												cur = cur->next;
-												if((cur->tok_value == S_EQUAL) || (cur->tok_value == S_LESS) || (cur->tok_value == S_GREATER))
-												{
-													rel_op = cur->tok_value;
-													cur = cur->next; //move past relational operator
-													if((cur->tok_value != INT_LITERAL) && (cur->tok_value != STRING_LITERAL) && (cur->tok_value != K_NULL))
-													{
-														printf("invalid type value in where clause. only string literals, int literals, and 'null' are supported.\n");
-														rc = INVALID_TYPE_IN_WHERE_OF_UPDATE;
-														cur->tok_value = INVALID;
-														return rc;
-													}
-													else 
-													{
-														int where_match = checkColType(tab_entry, cur->tok_string, cur->tok_value, where_col_no);
-														//returns -1 for type mismatch, 1 or 0 for proper size of char and int
-														if(where_match != 1)
-														{ //not a type match
-															switch(where_match)
-															{
-																case -2: //null in where clause but column cannot be null'ed	
-																	printf("column in where cannot be set to null, so no matching rows to update\n");
-																	rc = UPDATE_NOT_NULL_CONSTRAINT;
-																	break;
-																case -1:
-																	printf("type in where statement does not match column type\n");
-																	rc = MISMATCH_TYPE_IN_WHERE_OF_UPDATE;
-																	break;
-																case 0:
-																	if(cur->tok_value == INT_LITERAL)
-																	{
-																		printf("integer size error\n");
-																		rc = UPDATE_INT_SIZE_FAILURE;
-																	}
-																	else if(cur->tok_value == STRING_LITERAL)
-																	{
-																		printf("update char length error\n");
-																		rc = UPDATE_CHAR_LEN_MISMATCH;
-																	}
-																	break;
-															}
-															cur->tok_value = INVALID;
-															return rc;
-														}
-														else
-														{
-															if(cur->next->tok_value != EOC)
-															{
-																printf("invalid clause after where clause of update\n");
-																rc = INVALID_UPDATE_STATEMENT;
-																cur->next->tok_value = INVALID;
-															}
-															//else - parse ok
-														}//match ok in where clause
-													}//data value in where clause is right type
-												}//valid relational operator
-												else
-												{
-													printf("invalid relational operator found. only <, =, and > are supported\n");
-													rc = INVALID_REL_OP_IN_UPDATE;
-													cur->tok_value = INVALID;
-												}
-											}//column name in where clause found
-											else
-											{
-												printf("no matching column in where clause of update statement\n");
-												rc = NO_MATCHING_COL_IN_WHERE_OF_UPDATE;
-												cur->tok_value = INVALID;
-											}
-										}
-										else
-										{
-											printf("invalid update statement after set clause\n");
-											rc = INVALID_UPDATE_STATEMENT;
-											cur->tok_value = INVALID;
-										}
-									}//there is a where clause
-									//else - parse ok
-								}
-									
-							}//valid input value type
-						}//equal sign found
-					}//column name found
-					else
-					{
-						printf("no matching column to update\n");
-						rc = NO_MATCHING_COL_TO_UPDATE;
-						cur->tok_value = INVALID;
-						return rc;
-					}
-				}//values after set keyword
-				else
-				{
-					printf("invalid update statement. missing column to set\n");
-					rc = INVALID_UPDATE_STATEMENT;
-					cur->tok_value = INVALID;
-					return rc;
-				}//missing column name
-			}
-			else 
-			{
-				printf("invalid update statement. missing set clause\n");
-				rc = INVALID_UPDATE_STATEMENT;
-				cur->tok_value = INVALID;
-				return rc;
-			}//missing set keyword
-		}//end else for table exists
-	}
-
-	if (!rc)
-	{
-		//printf("update statement parsed ok\n");
-		if(has_where)
-		{
-			//printf("do the update here!\n");
-			//printf("col to update is number %d and update value is: %s\n", column_num, update_token->tok_string);
-			//printf("col to check in where is number %d and value is %s\n", where_col_no, cur->tok_string);
-			//printf("need to check that a row has value in where clause\n");
-			int ok_to_update = checkRowsForValue(tab_entry, column_num, update_token, rel_op, cur, where_col_no);
-			switch(ok_to_update)
-			{
-				case -3:
-					rc = DBFILE_CORRUPTION;
-					break;
-				case -2:
-					rc = MEMORY_ERROR;
-					break;
-				case -1:
-					rc = FILE_OPEN_ERROR;
-					break;
-				case 0:
-					printf("no matching rows with given value in where clause found\n");
-					rc = NO_MATCHING_ROW_TO_UPDATE;
-					cur->tok_value = INVALID;
-					break;
-				default:
-					;//printf("match found"); //match found - update is a go
-			}
-
-		}//has where clause
-		else
-		{	//no where clause, update all rows
-			int update = updateHelper(tab_entry, column_num, update_token);
-			switch(update)
-			{
-				case -1:
-					rc = FILE_OPEN_ERROR;
-					break;
-				case -2:
-					rc = MEMORY_ERROR;
-					break;
-			}
-
-			//printf("update token is %s and token_value is %d\n", update_token->tok_string, update_token->tok_value);
-		}//no where clause, update all rows
-	}
-
-	return rc;
 }
 
 token_list * insertHelper(int tok_class, int tok_value, char* tok_string)
@@ -5066,7 +5067,7 @@ unsigned char* selectRowsForValueOr(unsigned char* buffer, tpd_entry *tab_entry,
 			rows++;
 		}
 
-		printf("matching rows is %d\n\n", matches);
+		//printf("matching rows is %d\n\n", matches);
 
 		unsigned char* temp_buffer = NULL;
 		temp_buffer = (unsigned char*)calloc(1, rec_size * matches);
@@ -5489,7 +5490,7 @@ int getNumberOfMatchesOr(unsigned char* buffer, tpd_entry *tab_entry, int col_to
 			rows++;
 		}
 
-		printf("matching rows is %d\n\n", matches);
+		//printf("matching rows is %d\n\n", matches);
 
 		return matches;
 	}

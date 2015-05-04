@@ -238,47 +238,43 @@ int sem_insert(token_list *t_list);
 int sem_select(token_list *t_list);
 int sem_delete(token_list *t_list);
 int sem_update(token_list *t_list);
-int select_aggregate(token_list *t_list);
-int select_by_column(token_list *t_list);
-int select_where_parser(tpd_entry *tab_entry, token_list *t_list);
 
 /* helper functions */
 token_list* insertHelper(int t_class, int t_value, char* t_string);
+int updateHelper(tpd_entry *tab_entry, int col_to_update, token_list *update_token);
+int deleteHelper(char *table_name);
+int select_helper_math(tpd_entry *tab_entry, table_file_header *table_info, unsigned char* buffer, int col_to_aggregate, int num_records);
+int cnt_not_null(tpd_entry *tab_entry, table_file_header *table_info, unsigned char* buffer, int col_to_cnt, int num_records);
+unsigned char* get_buffer(tpd_entry *tab_entry);
+table_file_header* getTFH(tpd_entry *tab_entry);
+
+/* printer helper functions */
 char* getOuter(tpd_entry *tab_entry);
 char* getColHeaders(tpd_entry *tab_entry);
+char* getOuterByCol(tpd_entry *tab_entry, int colArray[], int num_col_to_fetch);
+char* getColHeadersByCol(tpd_entry *tab_entry, int colArray[], int num_col_to_fetch);
+int print_selectAll(tpd_entry *tab_entry);
+int print_select(tpd_entry *tab_entry, int colArray[], int cols_to_print);
+int print_aggregate(tpd_entry *tab_entry, table_file_header *table_info, unsigned char* buffer, int column_number, token_list *agg_tok, int agg_func, int num_records);
+int print_select_from_buffer(tpd_entry *tab_entry, unsigned char* buffer, int len_of_buffer, int num_records, int record_size);
+int print_select_from_buffer(tpd_entry *tab_entry, unsigned char* buffer, int len_of_buffer, int matches, int record_size,  int colArray[], int cols_to_print);
+
+unsigned char* orderByBuffer(unsigned char* buffer, tpd_entry *tab_entry, int col_to_order_on, int order, int rec_size, int rec_cnt);
+
+/* checking helper functions */
 int columnFinder(tpd_entry *tab_entry, char *tok_string);
 int checkColType(tpd_entry *tab_entry, char *tok_string, int t_type, int c_num);
 int checkCharLen(tpd_entry *tab_entry, char *tok_string, int c_num);
 int checkIntSize(char *tok_string);
 int checkRowsForValue(tpd_entry *tab_entry, int col_to_update, token_list *update_token, int rel_op, token_list *where_token, int c_num);
-int updateHelper(tpd_entry *tab_entry, int col_to_update, token_list *update_token);
-int deleteHelper(char *table_name);
 int checkRowsForDelete(tpd_entry *tab_entry, int rel_op, token_list *where_token, int c_num);
-
-char* getOuterByCol(tpd_entry *tab_entry, int colArray[], int num_col_to_fetch);
-char* getColHeadersByCol(tpd_entry *tab_entry, int colArray[], int num_col_to_fetch);
-int print_selectAll(tpd_entry *tab_entry);
-int print_select(tpd_entry *tab_entry, int colArray[], int cols_to_print);
-int select_helper(tpd_entry *tab_entry);
-
-int select_helper_math(tpd_entry *tab_entry, table_file_header *table_info, unsigned char* buffer, int col_to_aggregate, int num_records);
-int cnt_not_null(tpd_entry *tab_entry, table_file_header *table_info, unsigned char* buffer, int col_to_cnt, int num_records);
-
-unsigned char* get_buffer(tpd_entry *tab_entry);
 int checkAggregateSyntax(tpd_entry *tab_entry, token_list *agg_col);
-int print_aggregate(tpd_entry *tab_entry, table_file_header *table_info, unsigned char* buffer, int column_number, token_list *agg_tok, int agg_func, int num_records);
-unsigned char* select_where_parser(tpd_entry *tab_entry, table_file_header table_info, unsigned char* buffer, int size_of_buffer, token_list *cur);
 
+/* where parser functions */
 unsigned char* selectRowsForValue(unsigned char* buffer, tpd_entry *tab_entry, int col_to_search, token_list *search_token, int rel_op, int rec_cnt, int rec_size);
 unsigned char* selectRowsForValueOr(unsigned char* buffer, tpd_entry *tab_entry, int col_to_search, token_list *search_token, int rel_op, int rec_cnt, int rec_size, int col_to_search2, token_list *search_token2, int rel_op2);
-int print_from_buffer(tpd_entry *tab_entry, unsigned char* buffer, int len_of_buffer, int record_size, int matches);
 int getNumberOfMatches(unsigned char* buffer, tpd_entry *tab_entry, int col_to_search, token_list *search_token, int rel_op, int rec_cnt, int rec_size);
 int getNumberOfMatchesOr(unsigned char* buffer, tpd_entry *tab_entry, int col_to_search, token_list *search_token, int rel_op, int rec_cnt, int rec_size, int col_to_search2, token_list *search_token2, int rel_op2);
-
-int print_select_from_buffer(tpd_entry *tab_entry, unsigned char* buffer, int len_of_buffer, int num_records, int record_size);
-int print_select_from_buffer(tpd_entry *tab_entry, unsigned char* buffer, int len_of_buffer, int matches, int record_size,  int colArray[], int cols_to_print);
-unsigned char* orderByBuffer(unsigned char* buffer, tpd_entry *tab_entry, int col_to_order_on, int order, int rec_size, int rec_cnt);
-table_file_header* getTFH(tpd_entry *tab_entry);
 
 /*
 	Keep a global list of tpd - in real life, this will be stored

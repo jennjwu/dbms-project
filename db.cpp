@@ -51,8 +51,7 @@ int main(int argc, char** argv)
 						function_name,	// 6
 						terminator,		// 7
 						error			// 8*/
-			/*printf("%16s \t%d \t %d\n",tok_ptr->tok_string, tok_ptr->tok_class,
-				      tok_ptr->tok_value);*/
+			//printf("%16s \t%d \t %d\n",tok_ptr->tok_string, tok_ptr->tok_class, tok_ptr->tok_value);
 			tok_ptr = tok_ptr->next;
 		}
     
@@ -76,7 +75,7 @@ int main(int argc, char** argv)
 				tok_ptr = tok_ptr->next;
 			}
 		}
-		else
+		else if( (tok_list->tok_value != K_SELECT) && (tok_list->tok_value != K_BACKUP) && (tok_list->tok_value != K_ROLLFORWARD) && (tok_list->tok_value != K_RESTORE))
 		{
 			FILE *fhandle = NULL;
 			char *ts = NULL;
@@ -97,7 +96,6 @@ int main(int argc, char** argv)
 				rc = FILE_OPEN_ERROR;
 			}
 		}
-
 
 		/* Whether the token list is valid or not, we need to free the memory */
 		tok_ptr = tok_list;
@@ -432,6 +430,24 @@ int do_semantic(token_list *tok_list)
 		cur_cmd = UPDATE;
 		cur = cur->next;
 	}
+	else if ((cur->tok_value == K_BACKUP) && (cur->next->tok_value == K_TO))
+	{
+		printf("BACKUP statement\n");
+		cur_cmd = BACKUP;
+		cur = cur->next->next;
+	}
+	else if ((cur->tok_value == K_RESTORE) && (cur->next->tok_value == K_FROM))
+	{
+		printf("RESTORE statement\n");
+		cur_cmd = RESTORE;
+		cur = cur->next->next;
+	}
+	else if (cur->tok_value == K_ROLLFORWARD)
+	{
+		printf("ROLLFORWARD statement\n");
+		cur_cmd = ROLLFORWARD;
+		cur = cur->next;
+	}
 	else
 	{
 		printf("Invalid statement\n");
@@ -465,6 +481,15 @@ int do_semantic(token_list *tok_list)
 				break;
 			case UPDATE:
 				rc = sem_update(cur);
+				break;
+			case BACKUP:
+				rc = sem_backup(cur);
+				break;
+			case RESTORE:
+				rc = sem_restore(cur);
+				break;
+			case ROLLFORWARD:
+				rc = sem_rollforward(cur);
 				break;
 			default:
 				; /* no action */
@@ -1686,7 +1711,7 @@ int sem_select(token_list *t_list)
 				cur->tok_value = INVALID;
 			}
 			else
-			{	//36-sum, 37-abg, 38-count
+			{	//41-sum, 42-abg, 43-count
 				aggregate_func = agg->tok_value;
 				aggregate_col_tok = agg->next->next;
 				rc = checkAggregateSyntax(tab_entry, agg);
@@ -2507,6 +2532,39 @@ int sem_update(token_list *t_list)
 			//printf("update token is %s and token_value is %d\n", update_token->tok_string, update_token->tok_value);
 		}//no where clause, update all rows
 	}
+
+	return rc;
+}
+
+int sem_backup(token_list *t_list)
+{
+	int rc = 0;
+	token_list *cur = t_list;
+
+	if(cur->tok_value != EOC){
+		printf("your img file name is %s\n", cur->tok_string);
+	}
+	else{
+		printf("image file name must be given to backup to\n");
+		rc = MISSING_IMG_FILENAME;
+		cur->tok_value = INVALID;
+	}
+
+	return rc;
+}
+
+int sem_restore(token_list *t_list)
+{
+	int rc = 0;
+
+
+	return rc;
+}
+
+int sem_rollforward(token_list *t_list)
+{
+	int rc = 0;
+
 
 	return rc;
 }
@@ -3377,7 +3435,7 @@ int print_aggregate(tpd_entry *tab_entry, table_file_header *table_info, unsigne
 	int row_cnt = cnt_not_null(tab_entry, table_info, buffer, column_number, num_records);
 	int sum = select_helper_math(tab_entry, table_info, buffer, column_number, num_records);
 	switch(agg_func){
-		case 36: //sum
+		case 41: //sum
 			if(sum < 0){
 				switch(sum)
 				{
@@ -3408,7 +3466,7 @@ int print_aggregate(tpd_entry *tab_entry, table_file_header *table_info, unsigne
 				printf("%s\n",format);
 			}
 			break;
-		case 37: //avg
+		case 42: //avg
 			printf("%s\n",format);
 			if(row_cnt < 0){
 				switch(row_cnt)
@@ -3452,7 +3510,7 @@ int print_aggregate(tpd_entry *tab_entry, table_file_header *table_info, unsigne
 			}
 			printf("%s\n",format);
 			break;
-		case 38: //count
+		case 43: //count
 			if(column_number == 300){
 				printf("+--------+\n");
 				printf("|count(*)|\n");
@@ -5779,4 +5837,12 @@ unsigned char* orderByBuffer(unsigned char* buffer, tpd_entry *tab_entry, int co
 
 		return buffer;
 	}
+}
+
+int backupHelper()
+{
+	int rc = 0;
+
+
+	return rc;
 }

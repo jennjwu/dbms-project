@@ -114,9 +114,14 @@ typedef enum t_value
 	K_IS,         // 33
 	K_AND,        // 34
 	K_OR,         // 35 - new keyword should be added below this line
-	F_SUM,        // 36
-	F_AVG,        // 37
-	F_COUNT,      // 38 - new function name should be added below this line
+	K_BACKUP,	  // 36
+	K_RESTORE, 	  // 37
+	K_ROLLFORWARD,	// 38
+	K_WITHOUT,		// 39
+	K_RF,			// 40
+	F_SUM,        // 41
+	F_AVG,        // 42
+	F_COUNT,      // 43 - new function name should be added below this line
 	S_LEFT_PAREN = 70,  // 70
 	S_RIGHT_PAREN,		// 71
 	S_COMMA,			// 72
@@ -132,7 +137,7 @@ typedef enum t_value
 } token_value;
 
 /* This constants must be updated when add new keywords */
-#define TOTAL_KEYWORDS_PLUS_TYPE_NAMES 29
+#define TOTAL_KEYWORDS_PLUS_TYPE_NAMES 34
 
 /* New keyword must be added in the same position/order as the enum
    definition above, otherwise the lookup will be wrong */
@@ -141,7 +146,7 @@ char *keyword_table[] =
   "int", "char", "create", "table", "not", "null", "drop", "list", "schema",
   "for", "to", "insert", "into", "values", "delete", "from", "where", 
   "update", "set", "select", "order", "by", "desc", "is", "and", "or",
-  "sum", "avg", "count"
+  "backup", "restore", "rollforward", "without", "rf", "sum", "avg", "count"
 };
 
 /* This enum defines a set of possible statements */
@@ -155,7 +160,10 @@ typedef enum s_statement
   INSERT,                   // 104
   DELETE,                   // 105
   UPDATE,                   // 106
-  SELECT                    // 107
+  SELECT,                   // 107
+  BACKUP,					// 108
+  RESTORE,					// 109
+  ROLLFORWARD 				// 110
 } semantic_statement;
 
 /* This enum has a list of all the errors that should be detected
@@ -223,7 +231,8 @@ typedef enum error_return_codes
 	/* other errors */
 	FILE_OPEN_ERROR = -299,		// -299
 	DBFILE_CORRUPTION,			// -298
-	MEMORY_ERROR				// -297
+	MEMORY_ERROR,				// -297
+	MISSING_IMG_FILENAME		// -296
 } return_codes;
 
 /* Set of function prototypes */
@@ -239,6 +248,9 @@ int sem_insert(token_list *t_list);
 int sem_select(token_list *t_list);
 int sem_delete(token_list *t_list);
 int sem_update(token_list *t_list);
+int sem_backup(token_list *t_list);
+int sem_restore(token_list *t_list);
+int sem_rollforward(token_list *t_list);
 
 /* helper functions */
 token_list* insertHelper(int t_class, int t_value, char* t_string);

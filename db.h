@@ -227,6 +227,7 @@ typedef enum error_return_codes
 } return_codes;
 
 /* Set of function prototypes */
+char* get_timestamp();
 int get_token(char *command, token_list **tok_list);
 void add_to_list(token_list **tok_list, char *tmp, int t_class, int t_value);
 int do_semantic(token_list *tok_list);

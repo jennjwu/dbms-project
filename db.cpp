@@ -13,11 +13,13 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <math.h>
+#include <time.h>
 
 int main(int argc, char** argv)
 {
 	int rc = 0;
 	token_list *tok_list=NULL, *tok_ptr=NULL, *tmp_tok_ptr=NULL;
+	
 
 	if ((argc != 2) || (strlen(argv[1]) == 0))
 	{
@@ -33,6 +35,7 @@ int main(int argc, char** argv)
 	}
 	else
 	{
+		//regular function
 		rc = get_token(argv[1], &tok_list);
 
 		/* Test code */
@@ -73,6 +76,28 @@ int main(int argc, char** argv)
 				tok_ptr = tok_ptr->next;
 			}
 		}
+		else
+		{
+			FILE *fhandle = NULL;
+			char *ts = NULL;
+			char *cmd = NULL;
+			ts = get_timestamp();
+			//printf("ts: %s\n",ts);
+
+			if((fhandle = fopen("db.log", "a")) != NULL)
+			{
+				fprintf(fhandle,ts);
+				fprintf(fhandle," \"");
+				fprintf(fhandle,argv[1]);
+				fprintf(fhandle,"\"\n");
+				fclose(fhandle);
+			}
+			else{
+				printf("error writing to log file\n");
+				rc = FILE_OPEN_ERROR;
+			}
+		}
+
 
 		/* Whether the token list is valid or not, we need to free the memory */
 		tok_ptr = tok_list;
@@ -85,6 +110,55 @@ int main(int argc, char** argv)
 	}
 
 	return rc;
+}
+
+char* get_timestamp()
+{
+	time_t curtime;
+	struct tm *the_tm;
+
+	curtime = time(NULL);
+	the_tm = localtime(&curtime);
+	
+	char *timestamp = NULL;
+	char temp[4];
+	timestamp = (char*)calloc(1, 16);
+	//printf("%d %02d %02d %02d %02d %02d", the_tm->tm_year+1900, the_tm->tm_mon+1, the_tm->tm_mday, the_tm->tm_hour, the_tm->tm_min, the_tm->tm_sec);
+
+	itoa(the_tm->tm_year+1900, timestamp, 10);
+	itoa(the_tm->tm_mon+1, temp, 10);
+	if(strlen(temp)<2){
+		strcat(timestamp,"0");
+	}
+	strcat(timestamp, temp);
+
+	itoa(the_tm->tm_mday, temp, 10);
+	if(strlen(temp)<2){
+		strcat(timestamp,"0");
+	}
+	strcat(timestamp, temp);
+
+	itoa(the_tm->tm_hour, temp, 10);
+	if(strlen(temp)<2){
+		strcat(timestamp,"0");
+	}
+	strcat(timestamp, temp);
+
+	itoa(the_tm->tm_min, temp, 10);
+	if(strlen(temp)<2){
+		strcat(timestamp,"0");
+	}
+	strcat(timestamp, temp);
+
+	itoa(the_tm->tm_sec, temp, 10);
+	if(strlen(temp)<2){
+		strcat(timestamp,"0");
+	}
+	strcat(timestamp, temp);
+
+	//printf("ts: %s\n", timestamp);
+
+	return timestamp;
 }
 
 /************************************************************* 

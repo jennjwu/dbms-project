@@ -270,8 +270,11 @@ int print_aggregate(tpd_entry *tab_entry, table_file_header *table_info, unsigne
 unsigned char* select_where_parser(tpd_entry *tab_entry, table_file_header table_info, unsigned char* buffer, int size_of_buffer, token_list *cur);
 
 unsigned char* selectRowsForValue(unsigned char* buffer, tpd_entry *tab_entry, int col_to_search, token_list *search_token, int rel_op, int rec_cnt, int rec_size);
+unsigned char* selectRowsForValueOr(unsigned char* buffer, tpd_entry *tab_entry, int col_to_search, token_list *search_token, int rel_op, int rec_cnt, int rec_size, int col_to_search2, token_list *search_token2, int rel_op2);
 int print_from_buffer(tpd_entry *tab_entry, unsigned char* buffer, int len_of_buffer, int record_size, int matches);
 int getNumberOfMatches(unsigned char* buffer, tpd_entry *tab_entry, int col_to_search, token_list *search_token, int rel_op, int rec_cnt, int rec_size);
+int getNumberOfMatchesOr(unsigned char* buffer, tpd_entry *tab_entry, int col_to_search, token_list *search_token, int rel_op, int rec_cnt, int rec_size, int col_to_search2, token_list *search_token2, int rel_op2);
+
 int print_select_from_buffer(tpd_entry *tab_entry, unsigned char* buffer, int len_of_buffer, int num_records, int record_size);
 int print_select_from_buffer(tpd_entry *tab_entry, unsigned char* buffer, int len_of_buffer, int matches, int record_size,  int colArray[], int cols_to_print);
 unsigned char* orderByBuffer(unsigned char* buffer, tpd_entry *tab_entry, int col_to_order_on, int order, int rec_size, int rec_cnt);

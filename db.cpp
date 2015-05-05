@@ -6016,10 +6016,9 @@ int restoreHelper(token_list *img_file_name)
 	FILE *fdelete = NULL;
 	struct _stat file_stat;
 	
-	
-	
 	if((fhandle = fopen(img_file_name->tok_string, "rbc")) != NULL)
 	{
+		//get size of dbfile.bin
 		char *file_size_buf;
 		int file_size;
 		file_size_buf = (char*)calloc(1, sizeof(int));
@@ -6027,28 +6026,73 @@ int restoreHelper(token_list *img_file_name)
 			fread(&file_size_buf[a], 1, 1, fhandle);
 		}
 		memcpy(&file_size, file_size_buf, sizeof(int));
-		printf("db2file.bin size is %d\n", file_size);
+		printf("dbfile.bin size is %d\n", file_size);
 
+		tpd_list *dbfile_contents = (tpd_list*)calloc(1, file_size);
+		fread(dbfile_contents, file_size, 1, fhandle);
+
+		//restore dbfile.bin
+		if((fdelete = fopen("dbfile.bin", "wbc")) != NULL){
+			fwrite(dbfile_contents, file_size, 1, fdelete);
+			fflush(fdelete);
+			fclose(fdelete);
+			rc = initialize_tpd_list(); //restores g_tpd_list
+			if (rc)
+			{
+				printf("\nError in initialize_tpd_list().\nrc = %d\n", rc);
+				return rc;
+			}
+		}
+		else{
+			rc = FILE_OPEN_ERROR;
+		}
+
+		int num_tables = g_tpd_list->num_tables;
+		tpd_entry *cur = &(g_tpd_list->tpd_start);
+		while(!feof(fhandle))
+		{
+			if(num_tables>0){
+				//get next file size
+				char *file_size_buf;
+				int file_size;
+				file_size_buf = (char*)calloc(1, sizeof(int));
+				for(int a = 0; a < sizeof(int); a++){
+					fread(&file_size_buf[a], 1, 1, fhandle);
+				}
+				memcpy(&file_size, file_size_buf, sizeof(int));
+				printf("%s size is %d\n", cur->table_name, file_size);
+
+				//get xx.tab file name
+				char *filename = (char*)calloc(1,strlen(cur->table_name)+4);
+				strcat(filename, cur->table_name);
+				strcat(filename,".tab");
+				printf("filename is %s\n",filename);
+
+				//get contents
+				table_file_header *file_contents = (table_file_header*)calloc(1, file_size);
+				fread(file_contents, file_size, 1, fhandle);
+
+				//restore xx.tab file
+				if((fdelete = fopen(filename, "wbc")) != NULL){
+					fwrite(file_contents, file_size, 1, fdelete);
+					fflush(fdelete);
+					fclose(fdelete);
+				}
+				else{
+					rc = FILE_OPEN_ERROR;
+				}
+
+				num_tables--;
+				cur = (tpd_entry*)((char*)cur + cur->tpd_size);
+			}	
+			else
+				break;
+		}
 	}
 	else{
 		printf("error opening %s\n", img_file_name->tok_string);
 		rc = FILE_OPEN_ERROR;
 	}
-
-
-	//do the restore
-	/*if((fdelete = fopen("dbfile.bin", "rbc")) != NULL)
-	{
-		if(remove("dbfile.bin") != 0)
-			perror("Error deleting file\n");
-	}
-
-
-
-	rc = initialize_tpd_list();
-
-*/
-
 
 	return rc;
 }

@@ -232,7 +232,11 @@ typedef enum error_return_codes
 	FILE_OPEN_ERROR = -299,		// -299
 	DBFILE_CORRUPTION,			// -298
 	MEMORY_ERROR,				// -297
-	MISSING_IMG_FILENAME		// -296
+	MISSING_IMG_FILENAME,		// -296
+	DUPLICATE_IMG_FILENAME,		// -295
+	INVALID_BACKUP_STATEMENT,	// -294
+	INVALID_RESTORE_STATEMENT,	// -293
+	INVALID_ROLLFOWARD_STMT		// -292
 } return_codes;
 
 /* Set of function prototypes */
@@ -288,6 +292,9 @@ unsigned char* selectRowsForValue(unsigned char* buffer, tpd_entry *tab_entry, i
 unsigned char* selectRowsForValueOr(unsigned char* buffer, tpd_entry *tab_entry, int col_to_search, token_list *search_token, int rel_op, int rec_cnt, int rec_size, int col_to_search2, token_list *search_token2, int rel_op2);
 int getNumberOfMatches(unsigned char* buffer, tpd_entry *tab_entry, int col_to_search, token_list *search_token, int rel_op, int rec_cnt, int rec_size);
 int getNumberOfMatchesOr(unsigned char* buffer, tpd_entry *tab_entry, int col_to_search, token_list *search_token, int rel_op, int rec_cnt, int rec_size, int col_to_search2, token_list *search_token2, int rel_op2);
+
+/* other helper functions*/
+int restoreHelper(token_list *img_file_name);
 
 /*
 	Keep a global list of tpd - in real life, this will be stored

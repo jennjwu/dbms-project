@@ -75,7 +75,7 @@ int main(int argc, char** argv)
 				tok_ptr = tok_ptr->next;
 			}
 		}
-		else if( (tok_list->tok_value != K_SELECT) && (tok_list->tok_value != K_BACKUP) && (tok_list->tok_value != K_ROLLFORWARD) && (tok_list->tok_value != K_RESTORE))
+		else if(tok_list->tok_value != K_SELECT)
 		{
 			FILE *fhandle = NULL;
 			char *ts = NULL;
@@ -2540,9 +2540,115 @@ int sem_backup(token_list *t_list)
 {
 	int rc = 0;
 	token_list *cur = t_list;
+	FILE *fhandle = NULL;
+	FILE *fbackup = NULL;
+	struct _stat file_stat;
+	int backup_file_size = 0;
 
-	if(cur->tok_value != EOC){
-		printf("your img file name is %s\n", cur->tok_string);
+	if(cur->tok_class == identifier){
+		if(cur->next->tok_value == EOC){
+			if((fbackup = fopen(cur->tok_string, "rbc")) == NULL)
+			{
+				if((fbackup = fopen(cur->tok_string, "wbc")) == NULL)
+				{
+					rc = FILE_OPEN_ERROR;
+				}
+				else
+				{
+					//Backup dbfile.bin
+					if((fhandle = fopen("dbfile.bin", "rbc")) != NULL)
+					{
+						
+						_fstat(_fileno(fhandle), &file_stat);
+						printf("backing up dbfile.bin = %d\n",file_stat.st_size);
+						backup_file_size += file_stat.st_size + 4;
+						tpd_entry *dbfile = (tpd_entry*)calloc(1, file_stat.st_size);
+
+						if(!dbfile)
+						{
+							rc = MEMORY_ERROR;
+							return rc;
+						}
+						else
+						{
+							fread(dbfile, file_stat.st_size, 1, fhandle);
+							fflush(fhandle);
+
+							fwrite(&file_stat.st_size, 4, 1, fbackup);
+							fwrite(dbfile, file_stat.st_size, 1, fbackup);
+						}
+					}
+					else{
+						printf("error opening or dbfile.bin does not exist\n");
+						rc = FILE_OPEN_ERROR;
+						return rc;
+					}
+
+					//Backup each .tab file in order
+					int num_tables = g_tpd_list->num_tables;
+					tpd_entry *cur_tab = &(g_tpd_list->tpd_start);
+
+					if(num_tables>0)
+					{
+						while (num_tables-- > 0)
+						{
+							
+							char *tablename = (char*)calloc(1,strlen(cur_tab->table_name)+4);
+							strcat(tablename, cur_tab->table_name);
+							strcat(tablename, ".tab");
+							if((fhandle = fopen(tablename, "rbc")) != NULL)
+							{
+								_fstat(_fileno(fhandle), &file_stat);
+								printf("backing up %s.tab = %d\n", cur_tab->table_name, file_stat.st_size);
+								backup_file_size += file_stat.st_size + 4;
+								table_file_header *table = (table_file_header*)calloc(1, file_stat.st_size);
+
+								if(!table)
+								{
+									rc = MEMORY_ERROR;
+									return rc;
+								}
+								else
+								{
+									fread(table, file_stat.st_size, 1, fhandle);
+									fflush(fhandle);
+
+									fwrite(&file_stat.st_size, 4, 1, fbackup);
+									fwrite(table, file_stat.st_size, 1, fbackup);
+								}
+							}
+							else
+							{
+								printf("error opening or %s.tab does not exist\n", cur_tab->table_name);
+								rc = FILE_OPEN_ERROR;
+								return rc;
+							}
+
+							if (num_tables > 0)
+							{
+								cur_tab = (tpd_entry*)((char*)cur_tab + cur_tab->tpd_size);
+							}
+						}
+					}
+					else{
+						printf("no tables to backup\n");
+					}
+
+					printf("%s size = %d\n", cur->tok_string, backup_file_size);
+				}
+			}
+			else
+			{
+				printf("img file with the name %s already exists. backup failure.\n", cur->tok_string);
+				rc = DUPLICATE_IMG_FILENAME;
+				cur->tok_value = INVALID;
+			}
+		}
+		else{
+			printf("unexpected symbol after backup statement\n");
+			rc = INVALID_BACKUP_STATEMENT;
+			cur->next->tok_value = INVALID;
+		}
 	}
 	else{
 		printf("image file name must be given to backup to\n");
@@ -2556,7 +2662,71 @@ int sem_backup(token_list *t_list)
 int sem_restore(token_list *t_list)
 {
 	int rc = 0;
+	token_list *cur = t_list;
+	FILE *fhandle = NULL;
+	struct _stat file_stat;
+	bool without_rf = false;
 
+	if(cur->tok_class == identifier)
+	{
+		//get image file identifier
+		token_list *img_file_name = cur;
+		
+		if(cur->next->tok_value == EOC){
+			//printf("restore w/o RF\n"); parse OK
+		}
+		else if (cur->next->tok_value == K_WITHOUT){
+			cur = cur->next->next;
+			if(cur->tok_value == K_RF){
+				//printf("restore w/ RF\n");
+				without_rf = true;
+			}
+			else{
+				printf("without keyword can only be followed by 'rf'\n");
+				rc = INVALID_RESTORE_STATEMENT;
+				cur->tok_value = INVALID;
+			}
+		}
+		else{
+			printf("unexpected symbol found in restore statement\n");
+			rc = INVALID_RESTORE_STATEMENT;
+			cur->next->tok_value = INVALID;
+		}
+
+		if(!rc)
+		{
+			if((fhandle = fopen(img_file_name->tok_string, "rbc")) == NULL)
+			{
+				printf("%s image file does not exist. cannot restore from it\n");
+				rc = FILE_OPEN_ERROR;
+				img_file_name->tok_value = INVALID;
+			}
+			else
+			{
+				//fhandle for img_file_name
+				rc = restoreHelper(img_file_name);
+				
+
+
+
+
+
+
+				if(without_rf){
+					printf("need to set db_flat to ROLLFORWARD_PENDING in tpd_list\n");
+				}
+				else{
+					printf("need to prune log entries that occurred after BACKUP tag\n");
+				}
+			}
+		}
+	}
+	else
+	{
+		printf("image file name must be given to restore from\n");
+		rc = MISSING_IMG_FILENAME;
+		cur->tok_value = INVALID;
+	}
 
 	return rc;
 }
@@ -5839,9 +6009,45 @@ unsigned char* orderByBuffer(unsigned char* buffer, tpd_entry *tab_entry, int co
 	}
 }
 
-int backupHelper()
+int restoreHelper(token_list *img_file_name)
 {
 	int rc = 0;
+	FILE *fhandle = NULL;
+	FILE *fdelete = NULL;
+	struct _stat file_stat;
+	
+	
+	
+	if((fhandle = fopen(img_file_name->tok_string, "rbc")) != NULL)
+	{
+		char *file_size_buf;
+		int file_size;
+		file_size_buf = (char*)calloc(1, sizeof(int));
+		for(int a = 0; a < sizeof(int); a++){
+			fread(&file_size_buf[a], 1, 1, fhandle);
+		}
+		memcpy(&file_size, file_size_buf, sizeof(int));
+		printf("db2file.bin size is %d\n", file_size);
+
+	}
+	else{
+		printf("error opening %s\n", img_file_name->tok_string);
+		rc = FILE_OPEN_ERROR;
+	}
+
+
+	//do the restore
+	/*if((fdelete = fopen("dbfile.bin", "rbc")) != NULL)
+	{
+		if(remove("dbfile.bin") != 0)
+			perror("Error deleting file\n");
+	}
+
+
+
+	rc = initialize_tpd_list();
+
+*/
 
 
 	return rc;

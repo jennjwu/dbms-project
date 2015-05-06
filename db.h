@@ -295,6 +295,7 @@ int getNumberOfMatchesOr(unsigned char* buffer, tpd_entry *tab_entry, int col_to
 
 /* other helper functions*/
 int restoreHelper(token_list *img_file_name);
+int pruneLog(token_list *img_file_name, bool without_rf);
 
 /*
 	Keep a global list of tpd - in real life, this will be stored

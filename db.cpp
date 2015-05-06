@@ -75,7 +75,7 @@ int main(int argc, char** argv)
 				tok_ptr = tok_ptr->next;
 			}
 		}
-		else if(tok_list->tok_value != K_SELECT)
+		else if( (tok_list->tok_value != K_SELECT) && (tok_list->tok_value != K_RESTORE))
 		{
 			FILE *fhandle = NULL;
 			char *ts = NULL;
@@ -2671,7 +2671,8 @@ int sem_restore(token_list *t_list)
 	{
 		//get image file identifier
 		token_list *img_file_name = cur;
-		
+		//printf("string is %s\n", img_file_name->tok_string);
+
 		if(cur->next->tok_value == EOC){
 			//printf("restore w/o RF\n"); parse OK
 		}
@@ -2697,27 +2698,14 @@ int sem_restore(token_list *t_list)
 		{
 			if((fhandle = fopen(img_file_name->tok_string, "rbc")) == NULL)
 			{
-				printf("%s image file does not exist. cannot restore from it\n");
+				printf("%s image file does not exist. cannot restore from it\n", img_file_name->tok_string);
 				rc = FILE_OPEN_ERROR;
 				img_file_name->tok_value = INVALID;
 			}
 			else
 			{
-				//fhandle for img_file_name
 				rc = restoreHelper(img_file_name);
-				
-
-
-
-
-
-
-				if(without_rf){
-					printf("need to set db_flat to ROLLFORWARD_PENDING in tpd_list\n");
-				}
-				else{
-					printf("need to prune log entries that occurred after BACKUP tag\n");
-				}
+				rc = pruneLog(img_file_name, without_rf);
 			}
 		}
 	}
@@ -6015,7 +6003,7 @@ int restoreHelper(token_list *img_file_name)
 	FILE *fhandle = NULL;
 	FILE *fdelete = NULL;
 	struct _stat file_stat;
-	
+
 	if((fhandle = fopen(img_file_name->tok_string, "rbc")) != NULL)
 	{
 		//get size of dbfile.bin
@@ -6026,7 +6014,7 @@ int restoreHelper(token_list *img_file_name)
 			fread(&file_size_buf[a], 1, 1, fhandle);
 		}
 		memcpy(&file_size, file_size_buf, sizeof(int));
-		printf("dbfile.bin size is %d\n", file_size);
+		//printf("dbfile.bin size is %d\n", file_size);
 
 		tpd_list *dbfile_contents = (tpd_list*)calloc(1, file_size);
 		fread(dbfile_contents, file_size, 1, fhandle);
@@ -6036,6 +6024,7 @@ int restoreHelper(token_list *img_file_name)
 			fwrite(dbfile_contents, file_size, 1, fdelete);
 			fflush(fdelete);
 			fclose(fdelete);
+			printf("Restoring dbfile.bin\n");
 			rc = initialize_tpd_list(); //restores g_tpd_list
 			if (rc)
 			{
@@ -6060,13 +6049,13 @@ int restoreHelper(token_list *img_file_name)
 					fread(&file_size_buf[a], 1, 1, fhandle);
 				}
 				memcpy(&file_size, file_size_buf, sizeof(int));
-				printf("%s size is %d\n", cur->table_name, file_size);
+				//printf("%s size is %d\n", cur->table_name, file_size);
 
 				//get xx.tab file name
 				char *filename = (char*)calloc(1,strlen(cur->table_name)+4);
 				strcat(filename, cur->table_name);
 				strcat(filename,".tab");
-				printf("filename is %s\n",filename);
+				printf("Restoring %s\n",filename);
 
 				//get contents
 				table_file_header *file_contents = (table_file_header*)calloc(1, file_size);
@@ -6095,4 +6084,137 @@ int restoreHelper(token_list *img_file_name)
 	}
 
 	return rc;
+}
+
+int pruneLog(token_list *img_file_name, bool without_rf)
+{
+	int rc = 0;
+	FILE *fhandle = NULL;
+	FILE *fwriter = NULL;
+	FILE *flogger = NULL;
+	char ts[16];
+	char *now = get_timestamp();
+	char cmd[MAX_PRINT_LEN];
+	char *toCompare = (char*)calloc(1,MAX_PRINT_LEN);
+	char bkup[MAX_PRINT_LEN];
+	char *existing_log = NULL;
+	long offset = 0;
+	struct _stat file_stat;
+	char *temp = (char*)calloc(1,sizeof(int));
+	//ts = get_timestamp();
+	//printf("ts: %s\n",ts);
+
+	strcat(toCompare,"\"backup to ");
+	strcat(toCompare, img_file_name->tok_string);
+	strcat(toCompare, "\"");
+	printf("the test string to find is %s\n", toCompare);
+
+	if((fhandle = fopen("db.log", "r")) != NULL)
+	{
+		_fstat(_fileno(fhandle), &file_stat);
+		existing_log = (char*)calloc(1, file_stat.st_size);
+		while(!feof(fhandle))
+		{
+			if(fgets(ts,16,fhandle) != NULL){
+				strcat(existing_log,ts);
+				//printf("ts is %s, ", ts);
+			}
+			//fseek(fhandle, 1, SEEK_CUR);
+			if(fgets(cmd,MAX_PRINT_LEN,fhandle) != NULL){
+				strcat(existing_log, cmd);
+				//printf("cmd is %s", cmd);
+			}
+
+			if(strncmp(toCompare, cmd, strlen(toCompare)) == 0){
+				printf("*****INSERT RF_START here*********\n");
+				printf("cur ts is %s\n",now);
+				offset = ftell(fhandle);
+				printf("offset is %d\n",offset);
+
+				break;
+			}
+
+		}
+
+		//printf("existing log:\n%s\n", existing_log);
+		//printf("without rf is %d\n", without_rf);
+
+		char *prune = (char*)calloc(1,file_stat.st_size - offset);
+		while(!feof(fhandle)){
+			if(fgets(bkup,MAX_PRINT_LEN,fhandle) != NULL){
+				//printf("the next line is %s\n",bkup);
+				strcat(prune,bkup);
+			}
+		}
+		//printf("prune is:\n%s\n", prune);
+
+		if(without_rf){
+			//overwrite with pruned log
+			if((fwriter = fopen("db.log", "w")) != NULL)
+			{
+				fprintf(fwriter, existing_log);
+				fclose(fwriter);
+				
+				//need to add back pruned portion to a diff log file
+				if(file_stat.st_size - offset > 0)
+				{
+					printf("without rf specified. pruning log file\n");
+					int i = 1;
+					itoa(i, temp, 10);
+					char *log_name = (char*)calloc(1,6+sizeof(int));
+					strcat(log_name, "db.log");
+					strcat(log_name, temp);
+
+					//printf("log_name to create is %s\n", log_name);
+
+					while((flogger = fopen(log_name, "r")) != NULL)
+					{
+						i++;
+						printf("i is now %d\n", i);
+						memset(log_name, 0, 6+sizeof(int));
+						memset(temp, 0, sizeof(int));
+						strcat(log_name, "db.log");
+						itoa(i, temp, 10);
+						printf("temp is %s\n", temp);
+						strcat(log_name, temp);
+						printf("logname is now %s\n", log_name);
+					}
+
+					printf("original log file contents saved to %s\n", log_name);
+					if((flogger = fopen(log_name, "w")) != NULL){
+						fprintf(flogger, existing_log);
+						fprintf(flogger, prune);
+					}
+					else{
+						printf("error opening log file to prune\n");
+						rc = FILE_OPEN_ERROR;
+					}
+				}
+			}
+			else{
+				printf("error reading from log file\n");
+				rc = FILE_OPEN_ERROR;
+			}
+		}
+		else{
+			char *prune = (char*)calloc(1,file_stat.st_size - offset);
+			while(!feof(fhandle)){
+				if(fgets(bkup,MAX_PRINT_LEN,fhandle) != NULL){
+					printf("the next line is %s\n",bkup);
+					strcat(prune,bkup);
+				}
+			}
+			
+			printf("prune is:\n%s\n", prune);
+		}
+
+		fclose(fhandle);
+	}
+	else{
+		printf("error reading from log file\n");
+		rc = FILE_OPEN_ERROR;
+	}
+
+	return rc;
+
 }

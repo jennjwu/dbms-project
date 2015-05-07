@@ -2744,8 +2744,8 @@ int sem_rollforward(token_list *t_list)
 		_fstat(_fileno(fhandle), &file_stat);
 		existing_log = (char*)calloc(1, file_stat.st_size);
 		char ts[16];
-		char cmd[MAX_PRINT_LEN];
-		char bkup[MAX_PRINT_LEN];
+		char *cmd = (char*)calloc(1, MAX_PRINT_LEN);
+		char *bkup = (char*)calloc(1, MAX_PRINT_LEN);
 		char *toCompare = (char*)calloc(1, 10);
 		strcat(toCompare, "\"RF_START\"");
 		bool found_rf_start = false;
@@ -2753,45 +2753,69 @@ int sem_rollforward(token_list *t_list)
 		while(!feof(fhandle))
 		{
 			if(fgets(ts,16,fhandle) != NULL){
-				strcat(existing_log,ts);
+				
 				//printf("ts is %s, ", ts);
 			}
 			//fseek(fhandle, 1, SEEK_CUR);
 			if(fgets(cmd,MAX_PRINT_LEN,fhandle) != NULL){
-				strcat(existing_log, cmd);
+				if(strncmp(toCompare, cmd, strlen(toCompare)) == 0){
+					//printf("*****RF_START here*********\n");
+					//printf("cur ts is %s\n",now);
+					offset = ftell(fhandle);
+					//printf("offset is %d\n",offset);
+					found_rf_start = true;
+					break;
+				}
+				else{
+					strcat(existing_log,ts);
+					strcat(existing_log, cmd);
+				}
 				//printf("cmd is %s", cmd);
 			}
 
-			if(strncmp(toCompare, cmd, strlen(toCompare)) == 0){
-				//printf("*****RF_START here*********\n");
-				//printf("cur ts is %s\n",now);
-				offset = ftell(fhandle);
-				//printf("offset is %d\n",offset);
-				found_rf_start = true;
-				break;
-			}
+			
 		}//get existing log before rf_start
 
 		redo = (char*)calloc(1,file_stat.st_size - offset);
 		while(!feof(fhandle)){
 			if(fgets(bkup,16,fhandle) != NULL){
 				strcat(redo,bkup);
-				//printf("ts is %s, ", ts);
 			}
+
+			//fseek(fhandle, 1, SEEK_CUR);//skip first quote
 			if(fgets(bkup,MAX_PRINT_LEN,fhandle) != NULL){
 				strcat(redo,bkup);
-				//printf("cmd is %s", bkup);
 			}
 		}
+
+		fflush(fhandle);
+		fclose(fhandle);
 
 		if(!found_rf_start){
 			printf("no restore point found. please use restore command before roll forward\n");
 			rc = MISSING_RF_START_IN_LOG;
+			return rc;
 		}
 		else{
-			printf("existing log\n%s\n",existing_log);
-
-			printf("redo list is\n%s", redo);
+			//reset flag in g_tpd_list
+			g_tpd_list->db_flags = 0;
+			//printf("db_flags is %d\n", g_tpd_list->db_flags);
+			if((fhandle= fopen("dbfile.bin", "rbc")) != NULL)
+			{
+				if((fhandle = fopen("dbfile.bin", "wbc")) != NULL)
+				{
+					//printf("g_tpd_list has size %d\n", g_tpd_list->list_size);
+					fwrite(g_tpd_list, g_tpd_list->list_size, 1, fhandle);
+					fflush(fhandle);
+					fclose(fhandle);
+				}
+				else{
+					rc = FILE_OPEN_ERROR;
+				}
+			}
+			else{
+				rc = FILE_OPEN_ERROR;
+			}
 		}
 	}
 	else{
@@ -2802,6 +2826,77 @@ int sem_rollforward(token_list *t_list)
 	if(!rc){
 		if(cur->tok_value == EOC){
 			printf("need to redo all commands\n");
+
+			if( (fhandle = fopen("db.log","r")) != NULL){
+				_fstat(_fileno(fhandle), &file_stat);
+				//existing_log = (char*)calloc(1, file_stat.st_size);
+				char ts[16];
+				char *cmd = (char*)calloc(1, MAX_PRINT_LEN);
+				char *bkup = (char*)calloc(1, MAX_PRINT_LEN);
+				char *toCompare = (char*)calloc(1, 10);
+				//strcat(toCompare, "\"RF_START\"");
+				//bool found_rf_start = false;
+				
+				fseek(fhandle, offset, SEEK_SET);
+				//redo = (char*)calloc(1,file_stat.st_size - offset);
+				while(!feof(fhandle)){
+					if(fgets(bkup,16,fhandle) != NULL){
+						//strcat(redo,bkup);
+						//printf("ts is %s, ", ts);
+					}
+
+					fseek(fhandle, 1, SEEK_CUR);//skip first quote
+					if(fgets(bkup,MAX_PRINT_LEN,fhandle) != NULL){
+						//strcat(redo,bkup);
+						//printf("bkup is '%s' and length is %d\n",bkup,strlen(bkup)-2);
+						//remove endline character and last quote
+						char *cmd = (char*)calloc(1,strlen(bkup)-1); //need one extra for null terminator
+						strncpy(cmd, bkup, strlen(bkup)-2);
+						printf("rolling forward: \"%s\"\n", cmd);
+						//printf("%d\n", strlen(cmd));
+
+						token_list *t_list = NULL;
+						rc = get_token(cmd, &t_list);
+						//printf("rc is %d\n", rc);
+						if(!rc){
+							if(t_list->tok_value != K_BACKUP){//skip redoing of backup steps
+								rc = do_semantic(t_list);
+							}
+						}
+
+						if(rc){
+							printf("rc = %d\n", rc);
+						}
+						
+					}
+				}
+
+				fflush(fhandle);
+				fclose(fhandle);
+			}
+			else{
+				printf("error opening db.log\n");
+				rc = FILE_OPEN_ERROR;
+			}
+
+
+			printf("fhandle offset is at %d\n", offset);
+			printf("existing_log\n%s",existing_log);
+			printf("redo log_log\n%s",redo);
+
+			//rewrite log without RF_START
+			if( (fhandle = fopen("db.log","w")) != NULL){
+				fprintf(fhandle, existing_log);
+				fprintf(fhandle, redo);
+
+				fflush(fhandle);
+				fclose(fhandle);
+			}
+			else{
+				printf("error opening db.log\n");
+				rc = FILE_OPEN_ERROR;
+			}
+
 		}
 		else if ( (cur->tok_value == K_TO) && (cur->next->tok_value != EOC)){
 			cur = cur->next;
@@ -2829,7 +2924,6 @@ int sem_rollforward(token_list *t_list)
 			rc = INVALID_ROLLFOWARD_STMT;
 			cur->tok_value = INVALID;
 		}
-
 	}
 	
 	return rc;
@@ -4670,7 +4764,7 @@ int checkRowsForDelete(tpd_entry *tab_entry, int rel_op, token_list *where_token
 					int i = 0, j = 0, rec_cnt = 0, row = 1, matches = 0;
 
 					int last_record = rows_tb_size - record_size;
-					//printf("last_record offset at %d    and rec_size is %d\n", last_record, record_size);
+					printf("last_record offset at %d    and rec_size is %d\n", last_record, record_size);
 					//printf("rows_tb_size is %d\n", rows_tb_size);
 
 					
@@ -4693,7 +4787,8 @@ int checkRowsForDelete(tpd_entry *tab_entry, int rel_op, token_list *where_token
 							}
 							else
 							{
-								//printf("col_offset is %d\n", col_offset);
+								printf("col_offset is %d\n", col_offset);
+								printf("last_record plus col_offset is at %d\n", last_record+col_offset);
 								int nullable = buffer[i];
 								int b = i + 1;
 								if(where_token->tok_value == K_NULL)
@@ -4705,25 +4800,38 @@ int checkRowsForDelete(tpd_entry *tab_entry, int rel_op, token_list *where_token
 										matches++;
 										to_delete = true;
 									}
+									if(memcmp(&buffer[last_record], &zero, 1) == 0){
+										last_record -= record_size;
+									}
 								}
 								else
 								{
 									if(col->col_type == T_INT)
 									{
 										int elem;
+										int last_elem;
 										if(!nullable)
 										{
 											elem = -99; //for null
 										}//elem is null
 										else
 										{
-											char *int_b;
+											char *int_b, *int_b2;
 											int_b = (char*)calloc(1, sizeof(int));
 											for (int a = 0; a < sizeof(int); a++)
 											{
 												int_b[a] = buffer[b + a];
 											}
 											memcpy(&elem, int_b, sizeof(int));
+											//printf("  elem is %d\n", elem);
+											
+											int_b2 = (char*)calloc(1, sizeof(int));
+											for (int a = 0; a < sizeof(int); a++)
+											{
+												int_b2[a] = buffer[last_record+1 + a];
+											}
+											memcpy(&last_elem, int_b2, sizeof(int));
+											//printf("last element is %d\n", last_elem);
 
 											switch(rel_op)
 											{
@@ -4734,6 +4842,14 @@ int checkRowsForDelete(tpd_entry *tab_entry, int rel_op, token_list *where_token
 														//printf("         match cnt %d\n", matches);
 														to_delete = true;
 													}
+													if(atoi(where_token->tok_string) == last_elem)
+													{
+														//matches++;
+														//printf("         match cnt %d\n", matches);
+														//last_is_to_delete = true;
+														//printf("last elem matches too\n");
+														last_record -= record_size;
+													}
 													break;
 												case S_LESS:
 													if(elem < atoi(where_token->tok_string))
@@ -4741,6 +4857,10 @@ int checkRowsForDelete(tpd_entry *tab_entry, int rel_op, token_list *where_token
 														matches++;
 														//printf("         match cnt %d\n", matches);
 														to_delete = true;
+													}
+													if(last_elem < atoi(where_token->tok_string))
+													{
+														last_record -= record_size;
 													}
 													break;
 												case S_GREATER:
@@ -4750,6 +4870,10 @@ int checkRowsForDelete(tpd_entry *tab_entry, int rel_op, token_list *where_token
 														//printf("         match cnt %d\n", matches);
 														to_delete = true;
 													}
+													if(last_elem > atoi(where_token->tok_string))
+													{
+														last_record -= record_size;
+													}
 													break;
 											}
 										}//elem is not null
@@ -4758,7 +4882,7 @@ int checkRowsForDelete(tpd_entry *tab_entry, int rel_op, token_list *where_token
 									}
 									else if (col->col_type == T_CHAR)
 									{
-										char *elem;
+										char *elem, *last_elem;
 										if(!nullable)
 										{
 											elem = NULL;
@@ -4772,6 +4896,15 @@ int checkRowsForDelete(tpd_entry *tab_entry, int rel_op, token_list *where_token
 												elem[a] = buffer[b + a];
 											}
 											elem[len - 1] = '\0';
+											//printf("elem is %s\n", elem);
+
+											last_elem = (char*)calloc(1, len);
+											for (int a = 0; a < len; a++)
+											{
+												last_elem[a] = buffer[last_record+col_offset + a];
+											}
+											last_elem[len - 1] = '\0';
+											//printf("last elem is %s\n", last_elem);
 
 											switch(rel_op)
 											{
@@ -4782,6 +4915,11 @@ int checkRowsForDelete(tpd_entry *tab_entry, int rel_op, token_list *where_token
 														//printf("         match cnt %d\n", matches);
 														to_delete = true;
 													}
+													if (memcmp(where_token->tok_string, last_elem, col->col_len) == 0)
+													{
+														//printf("         match cnt %d\n", matches);
+														last_record -= record_size;
+													}
 													break;
 												case S_LESS:
 													if (memcmp(where_token->tok_string, elem, col->col_len) < 0)
@@ -4789,6 +4927,11 @@ int checkRowsForDelete(tpd_entry *tab_entry, int rel_op, token_list *where_token
 														matches++;
 														//printf("         match cnt %d\n", matches);
 														to_delete = true;
+													}
+													if (memcmp(where_token->tok_string, last_elem, col->col_len) < 0)
+													{
+														//printf("         match cnt %d\n", matches);
+														last_record -= record_size;
 													}
 													break;
 												case S_GREATER:
@@ -4798,22 +4941,24 @@ int checkRowsForDelete(tpd_entry *tab_entry, int rel_op, token_list *where_token
 														//printf("         match cnt %d\n", matches);
 														to_delete = true;
 													}
+													if (memcmp(where_token->tok_string, last_elem, col->col_len) > 0)
+													{
+														//printf("         match cnt %d\n", matches);
+														last_record -= record_size;
+													}
 													break;
 											}										
 										}
 										//printf("  element is %s\n", elem);
 									}
 								}//not testing for null in where clause
+								break;
 							}//column id matches
 						}//end for
 
 						if(to_delete)
 						{
-							if(memcmp(&temp[0], &buffer[i],1) == 0)
-							{
-								last_record -= record_size; //move it backward one more row
-							}
-							
+
 							for (int a = 0; a < record_size; a++)
 							{
 								temp[a] = buffer[last_record + a];
@@ -6316,7 +6461,7 @@ int pruneLog(token_list *img_file_name, bool without_rf)
 				//set flag in g_tpd_list
 				g_tpd_list->db_flags = ROLLFORWARD_PENDING;
 				printf("db_flags is %d\n", g_tpd_list->db_flags);
-				getch();
+				//getch();
 
 				if((fwriter = fopen("dbfile.bin", "rbc")) != NULL)
 				{
@@ -6351,3 +6496,8 @@ int pruneLog(token_list *img_file_name, bool without_rf)
 	return rc;
 
 }
+
+/*int redoCmds(token_list *cur)
+{
+
+}*/

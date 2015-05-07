@@ -14,6 +14,7 @@
 #include <sys/types.h>
 #include <math.h>
 #include <time.h>
+#include <conio.h>
 
 int main(int argc, char** argv)
 {
@@ -57,7 +58,14 @@ int main(int argc, char** argv)
     
 		if (!rc)
 		{
-			rc = do_semantic(tok_list);
+			if( (g_tpd_list->db_flags == ROLLFORWARD_PENDING) && 
+				(tok_list->tok_value != K_ROLLFORWARD) ){
+				printf("cannot perform action. rollforward is pending\n");
+				rc = ROLLFORWARD_PENDING;
+			}
+			else{
+				rc = do_semantic(tok_list);	
+			}
 		}
 
 		if (rc)
@@ -75,7 +83,8 @@ int main(int argc, char** argv)
 				tok_ptr = tok_ptr->next;
 			}
 		}
-		else if( (tok_list->tok_value != K_SELECT) && (tok_list->tok_value != K_RESTORE))
+		else if( (tok_list->tok_value != K_SELECT) && (tok_list->tok_value != K_RESTORE) 
+				&& (tok_list->tok_value != K_LIST) && (tok_list->tok_value != K_ROLLFORWARD))
 		{
 			FILE *fhandle = NULL;
 			char *ts = NULL;
@@ -381,7 +390,7 @@ int do_semantic(token_list *tok_list)
 	{
 		printf("CREATE TABLE statement\n");
 		cur_cmd = CREATE_TABLE;
-		cur = cur->next->next;
+		cur = cur->next->next;	
 	}//end k_create
 	else if ((cur->tok_value == K_DROP) &&
 					((cur->next != NULL) && (cur->next->tok_value == K_TABLE)))
@@ -2722,8 +2731,107 @@ int sem_restore(token_list *t_list)
 int sem_rollforward(token_list *t_list)
 {
 	int rc = 0;
+	token_list *cur = t_list;
+	char *now = get_timestamp();
+	
+	FILE *fhandle = NULL;
+	struct _stat file_stat;
+	char* existing_log = NULL;
+	char *redo = NULL;
+	int offset = 0;
 
+	if( (fhandle = fopen("db.log","r")) != NULL){
+		_fstat(_fileno(fhandle), &file_stat);
+		existing_log = (char*)calloc(1, file_stat.st_size);
+		char ts[16];
+		char cmd[MAX_PRINT_LEN];
+		char bkup[MAX_PRINT_LEN];
+		char *toCompare = (char*)calloc(1, 10);
+		strcat(toCompare, "\"RF_START\"");
+		bool found_rf_start = false;
+		
+		while(!feof(fhandle))
+		{
+			if(fgets(ts,16,fhandle) != NULL){
+				strcat(existing_log,ts);
+				//printf("ts is %s, ", ts);
+			}
+			//fseek(fhandle, 1, SEEK_CUR);
+			if(fgets(cmd,MAX_PRINT_LEN,fhandle) != NULL){
+				strcat(existing_log, cmd);
+				//printf("cmd is %s", cmd);
+			}
 
+			if(strncmp(toCompare, cmd, strlen(toCompare)) == 0){
+				//printf("*****RF_START here*********\n");
+				//printf("cur ts is %s\n",now);
+				offset = ftell(fhandle);
+				//printf("offset is %d\n",offset);
+				found_rf_start = true;
+				break;
+			}
+		}//get existing log before rf_start
+
+		redo = (char*)calloc(1,file_stat.st_size - offset);
+		while(!feof(fhandle)){
+			if(fgets(bkup,16,fhandle) != NULL){
+				strcat(redo,bkup);
+				//printf("ts is %s, ", ts);
+			}
+			if(fgets(bkup,MAX_PRINT_LEN,fhandle) != NULL){
+				strcat(redo,bkup);
+				//printf("cmd is %s", bkup);
+			}
+		}
+
+		if(!found_rf_start){
+			printf("no restore point found. please use restore command before roll forward\n");
+			rc = MISSING_RF_START_IN_LOG;
+		}
+		else{
+			printf("existing log\n%s\n",existing_log);
+
+			printf("redo list is\n%s", redo);
+		}
+	}
+	else{
+		printf("error opening db.log\n");
+		rc = FILE_OPEN_ERROR;
+	}
+
+	if(!rc){
+		if(cur->tok_value == EOC){
+			printf("need to redo all commands\n");
+		}
+		else if ( (cur->tok_value == K_TO) && (cur->next->tok_value != EOC)){
+			cur = cur->next;
+			if(strlen(cur->tok_string) != 14){
+				printf("can only rollforward to a given timestamp as yyyymmddhhmmss");
+				rc = INVALID_TS_FOR_ROLLFORWARD;
+				cur->tok_value = INVALID;
+			}
+			else{
+				//printf("%s\n", cur->tok_string);
+				printf("cur tok value is %d and tok string is %s\n", cur->tok_value, cur->tok_string);
+
+				if(strcmp(now, cur->tok_string) < 0){
+					printf("you are trying to rollforward to a future timestamp\n");
+				}
+				else{
+					printf("to redo:\n%s\n", redo);
+						
+					
+				}//end else
+			}
+		}
+		else{
+			printf("keyword to in rollforward statement can only be followed by a 14 character timestamp\n");
+			rc = INVALID_ROLLFOWARD_STMT;
+			cur->tok_value = INVALID;
+		}
+
+	}
+	
 	return rc;
 }
 
@@ -6107,7 +6215,7 @@ int pruneLog(token_list *img_file_name, bool without_rf)
 	strcat(toCompare,"\"backup to ");
 	strcat(toCompare, img_file_name->tok_string);
 	strcat(toCompare, "\"");
-	printf("the test string to find is %s\n", toCompare);
+	//printf("the test string to find is %s\n", toCompare);
 
 	if((fhandle = fopen("db.log", "r")) != NULL)
 	{
@@ -6126,10 +6234,10 @@ int pruneLog(token_list *img_file_name, bool without_rf)
 			}
 
 			if(strncmp(toCompare, cmd, strlen(toCompare)) == 0){
-				printf("*****INSERT RF_START here*********\n");
-				printf("cur ts is %s\n",now);
+				//printf("*****INSERT RF_START here*********\n");
+				//printf("cur ts is %s\n",now);
 				offset = ftell(fhandle);
-				printf("offset is %d\n",offset);
+				//printf("offset is %d\n",offset);
 
 				break;
 			}
@@ -6146,7 +6254,7 @@ int pruneLog(token_list *img_file_name, bool without_rf)
 				strcat(prune,bkup);
 			}
 		}
-		//printf("prune is:\n%s\n", prune);
+		printf("prune is:\n%s\n", prune);
 
 		if(without_rf){
 			//overwrite with pruned log
@@ -6170,14 +6278,14 @@ int pruneLog(token_list *img_file_name, bool without_rf)
 					while((flogger = fopen(log_name, "r")) != NULL)
 					{
 						i++;
-						printf("i is now %d\n", i);
+						//printf("i is now %d\n", i);
 						memset(log_name, 0, 6+sizeof(int));
 						memset(temp, 0, sizeof(int));
 						strcat(log_name, "db.log");
 						itoa(i, temp, 10);
-						printf("temp is %s\n", temp);
+						//printf("temp is %s\n", temp);
 						strcat(log_name, temp);
-						printf("logname is now %s\n", log_name);
+						//printf("logname is now %s\n", log_name);
 					}
 
 					printf("original log file contents saved to %s\n", log_name);
@@ -6197,15 +6305,40 @@ int pruneLog(token_list *img_file_name, bool without_rf)
 			}
 		}
 		else{
-			char *prune = (char*)calloc(1,file_stat.st_size - offset);
-			while(!feof(fhandle)){
-				if(fgets(bkup,MAX_PRINT_LEN,fhandle) != NULL){
-					printf("the next line is %s\n",bkup);
-					strcat(prune,bkup);
+			if((fwriter = fopen("db.log", "w")) != NULL){
+				fprintf(fwriter, existing_log);
+				fprintf(fwriter, now);
+				fprintf(fwriter, " \"RF_START\"\n");
+				fprintf(fwriter, prune);
+				fflush(fwriter);
+				fclose(fwriter);
+
+				//set flag in g_tpd_list
+				g_tpd_list->db_flags = ROLLFORWARD_PENDING;
+				printf("db_flags is %d\n", g_tpd_list->db_flags);
+				getch();
+
+				if((fwriter = fopen("dbfile.bin", "rbc")) != NULL)
+				{
+					if((fwriter = fopen("dbfile.bin", "wbc")) != NULL)
+					{
+						printf("g_tpd_list has size %d\n", g_tpd_list->list_size);
+						fwrite(g_tpd_list, g_tpd_list->list_size, 1, fwriter);
+						fflush(fwriter);
+						fclose(fwriter);
+					}
+					else{
+						rc = FILE_OPEN_ERROR;
+					}
+				}
+				else{
+					rc = FILE_OPEN_ERROR;
 				}
 			}
-			
-			printf("prune is:\n%s\n", prune);
+			else{
+				printf("error opening log file\n");
+				rc = FILE_OPEN_ERROR;
+			}
 		}
 
 		fclose(fhandle);

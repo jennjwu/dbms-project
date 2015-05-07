@@ -4875,7 +4875,6 @@ int checkRowsForDelete(tpd_entry *tab_entry, int rel_op, token_list *where_token
 					printf("last_record offset at %d    and rec_size is %d\n", last_record, record_size);
 					//printf("rows_tb_size is %d\n", rows_tb_size);
 
-					
 					temp = (unsigned char*)calloc(1, record_size);
 					
 					while(i < rows_tb_size)
@@ -4896,7 +4895,7 @@ int checkRowsForDelete(tpd_entry *tab_entry, int rel_op, token_list *where_token
 							else
 							{
 								printf("col_offset is %d\n", col_offset);
-								printf("last_record plus col_offset is at %d\n", last_record+col_offset);
+								//printf("last_record plus col_offset is at %d\n", last_record+col_offset);
 								int nullable = buffer[i];
 								int b = i + 1;
 								if(where_token->tok_value == K_NULL)
@@ -4936,10 +4935,10 @@ int checkRowsForDelete(tpd_entry *tab_entry, int rel_op, token_list *where_token
 											int_b2 = (char*)calloc(1, sizeof(int));
 											for (int a = 0; a < sizeof(int); a++)
 											{
-												int_b2[a] = buffer[last_record+1 + a];
+												int_b2[a] = buffer[last_record+col_offset+1 + a];
 											}
 											memcpy(&last_elem, int_b2, sizeof(int));
-											//printf("last element is %d\n", last_elem);
+											//printf("  last element is %d\n", last_elem);
 
 											switch(rel_op)
 											{
@@ -5004,15 +5003,15 @@ int checkRowsForDelete(tpd_entry *tab_entry, int rel_op, token_list *where_token
 												elem[a] = buffer[b + a];
 											}
 											elem[len - 1] = '\0';
-											//printf("elem is %s\n", elem);
+											//printf("  elem is %s\n", elem);
 
 											last_elem = (char*)calloc(1, len);
 											for (int a = 0; a < len; a++)
 											{
-												last_elem[a] = buffer[last_record+col_offset + a];
+												last_elem[a] = buffer[last_record+col_offset+1 + a];
 											}
 											last_elem[len - 1] = '\0';
-											//printf("last elem is %s\n", last_elem);
+											//printf("  last elem is %s\n", last_elem);
 
 											switch(rel_op)
 											{

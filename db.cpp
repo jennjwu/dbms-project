@@ -2732,12 +2732,13 @@ int sem_rollforward(token_list *t_list)
 {
 	int rc = 0;
 	token_list *cur = t_list;
-	char *now = get_timestamp();
+	char *now;
 	
 	FILE *fhandle = NULL;
 	struct _stat file_stat;
 	char* existing_log = NULL;
 	char *redo = NULL;
+	char *prune_redo = NULL;
 	int offset = 0;
 
 	if( (fhandle = fopen("db.log","r")) != NULL){
@@ -2840,7 +2841,7 @@ int sem_rollforward(token_list *t_list)
 				fseek(fhandle, offset, SEEK_SET);
 				//redo = (char*)calloc(1,file_stat.st_size - offset);
 				while(!feof(fhandle)){
-					if(fgets(bkup,16,fhandle) != NULL){
+					if(fgets(ts,16,fhandle) != NULL){
 						//strcat(redo,bkup);
 						//printf("ts is %s, ", ts);
 					}
@@ -2880,9 +2881,9 @@ int sem_rollforward(token_list *t_list)
 			}
 
 
-			printf("fhandle offset is at %d\n", offset);
-			printf("existing_log\n%s",existing_log);
-			printf("redo log_log\n%s",redo);
+			//printf("fhandle offset is at %d\n", offset);
+			//printf("existing_log\n%s",existing_log);
+			//printf("redo log_log\n%s",redo);
 
 			//rewrite log without RF_START
 			if( (fhandle = fopen("db.log","w")) != NULL){
@@ -2907,14 +2908,121 @@ int sem_rollforward(token_list *t_list)
 			}
 			else{
 				//printf("%s\n", cur->tok_string);
-				printf("cur tok value is %d and tok string is %s\n", cur->tok_value, cur->tok_string);
-
+				//printf("cur tok value is %d and tok string is %s\n", cur->tok_value, cur->tok_string);
+				now = get_timestamp();
 				if(strcmp(now, cur->tok_string) < 0){
 					printf("you are trying to rollforward to a future timestamp\n");
 				}
 				else{
-					printf("to redo:\n%s\n", redo);
+					//printf("to redo:\n%s\n", redo);
+
+					if( (fhandle = fopen("db.log","r")) != NULL){
+						_fstat(_fileno(fhandle), &file_stat);
+						//existing_log = (char*)calloc(1, file_stat.st_size);
+						char ts[16];
+						char *cmd = (char*)calloc(1, MAX_PRINT_LEN);
+						char *bkup = (char*)calloc(1, MAX_PRINT_LEN);
 						
+						fseek(fhandle, offset, SEEK_SET);
+						prune_redo = (char*)calloc(1,file_stat.st_size - offset);
+						while(!feof(fhandle)){
+							bool roll = false;
+							if(fgets(ts,16,fhandle) != NULL){
+								//strcat(redo,bkup);
+								//printf("cur: '%s' and ts: '%s'\n", cur->tok_string, ts);
+								if(strncmp(ts, cur->tok_string, 14) <= 0){
+									roll = true;
+									//printf("  rollfwd this one\n");
+								}
+							}
+
+							//fseek(fhandle, 1, SEEK_CUR);//skip first quote
+							if(fgets(bkup,MAX_PRINT_LEN,fhandle) != NULL){
+								//strcat(redo,bkup);
+								//printf("bkup is '%s' and length is %d\n",bkup,strlen(bkup)-2);
+								//remove endline character and last quote
+								if(roll){
+									//add to pruned redo
+									strcat(prune_redo,ts);
+									strcat(prune_redo,bkup);
+
+									char *cmd = (char*)calloc(1,strlen(bkup)-1); //need one extra for null terminator
+									strncpy(cmd, bkup+1, strlen(bkup)-3);
+									printf("rolling forward: '%s'\n", cmd);
+									//printf("%d\n", strlen(cmd));
+
+									token_list *t_list = NULL;
+									rc = get_token(cmd, &t_list);
+									//printf("rc is %d\n", rc);
+									if(!rc){
+										if(t_list->tok_value != K_BACKUP){//skip redoing of backup steps
+											rc = do_semantic(t_list);
+										}
+									}
+
+									if(rc){
+										printf("rc = %d\n", rc);
+									}
+								}
+							}
+						}
+
+						fflush(fhandle);
+						fclose(fhandle);
+					}
+					else{
+						printf("error opening db.log\n");
+						rc = FILE_OPEN_ERROR;
+					}
+
+					//rewrite log file without RF_START
+					if( (fhandle = fopen("db.log","w")) != NULL){
+						fprintf(fhandle, existing_log);
+						fprintf(fhandle, prune_redo);
+
+						if(strlen(prune_redo) < strlen(redo)){
+							FILE *flogger = NULL;
+							printf("ts for rollforward caused pruning of the log.\n");
+
+							char *temp = (char*)calloc(1, sizeof(int));
+							int i = 1;
+							itoa(i, temp, 10);
+							char *log_name = (char*)calloc(1,6+sizeof(int));
+							strcat(log_name, "db.log");
+							strcat(log_name, temp);
+
+							while((flogger = fopen(log_name, "r")) != NULL)
+							{
+								i++;
+								//printf("i is now %d\n", i);
+								memset(log_name, 0, 6+sizeof(int));
+								memset(temp, 0, sizeof(int));
+								strcat(log_name, "db.log");
+								itoa(i, temp, 10);
+								//printf("temp is %s\n", temp);
+								strcat(log_name, temp);
+								//printf("logname is now %s\n", log_name);
+							}
+
+							printf("original log file contents saved to %s\n", log_name);
+							if((flogger = fopen(log_name, "w")) != NULL){
+								fprintf(flogger, existing_log);
+								fprintf(flogger, redo);
+							}
+							else{
+								printf("error opening log file to prune\n");
+								rc = FILE_OPEN_ERROR;
+							}
+						}
+
+						fflush(fhandle);
+						fclose(fhandle);
+					}
+					else{
+						printf("error opening db.log\n");
+						rc = FILE_OPEN_ERROR;
+					}
+
 					
 				}//end else
 			}

@@ -239,7 +239,8 @@ typedef enum error_return_codes
 	INVALID_ROLLFOWARD_STMT,		// -292
 	ROLLFORWARD_PENDING,			// -291
 	INVALID_TS_FOR_ROLLFORWARD,		// -290
-	MISSING_RF_START_IN_LOG			// -289
+	MISSING_RF_START_IN_LOG,		// -289
+	NOT_READY_FOR_ROLLFORWARD		// -288
 } return_codes;
 
 /* Set of function prototypes */

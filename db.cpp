@@ -1331,7 +1331,7 @@ int sem_insert(token_list *t_list)
 							//check that int literal is not greater than max int
 							if(!checkIntSize(cur->tok_string))
 							{
-								printf("integer value error\n");
+								printf("integer value exceeds max integer value\n");
 								rc = INSERT_INT_SIZE_FAILURE;
 								cur->tok_value = INVALID;
 								return rc;
@@ -1378,7 +1378,7 @@ int sem_insert(token_list *t_list)
 							}
 							else
 							{	//str size too long
-								printf("char length error\n");
+								printf("insert char length does not match column defintion.\n");
 								rc = INSERT_CHAR_LENGTH_MISMATCH;
 								cur->tok_value = INVALID;
 								return rc;
@@ -1735,13 +1735,21 @@ int sem_select(token_list *t_list)
 							return rc;
 						}
 					}
-					else{	//checkcoltype returns 1 if the col type matches and negative # when error
-						int type_match = checkColType(tab_entry, cur->next->tok_string, cur->next->tok_value, where_col1);
-						if(type_match != 1){
-							printf("data type in where statement does not match column type (too long/too large)\n");
-							rc = MISMATCH_TYPE_IN_WHERE_OF_SELECT;
+					else{
+						if( (cur->next->tok_value != INT_LITERAL) || (cur->next->tok_value != STRING_LITERAL)){
+							printf("invalid relational operator\n");
+							rc = INVALID_REL_OP_IN_WHERE_OF_SELECT;
 							cur->next->tok_value = INVALID;
 							return rc;
+						}
+						else{//checkcoltype returns 1 if the col type matches and negative # when error
+							int type_match = checkColType(tab_entry, cur->next->tok_string, cur->next->tok_value, where_col1);
+							if(type_match != 1){
+								printf("data type in where statement does not match column type (too long/too large)\n");
+								rc = MISMATCH_TYPE_IN_WHERE_OF_SELECT;
+								cur->next->tok_value = INVALID;
+								return rc;
+							}
 						}
 					}
 
@@ -1814,12 +1822,20 @@ int sem_select(token_list *t_list)
 								}
 							}
 							else{
-								int type_match = checkColType(tab_entry, cur->next->tok_string, cur->next->tok_value, where_col2);
-								if(type_match != 1){
-									printf("data type in where statement does not match column type (too long/too large)\n");
-									rc = MISMATCH_TYPE_IN_WHERE_OF_SELECT;
+								if( (cur->next->tok_value != INT_LITERAL) || (cur->next->tok_value != STRING_LITERAL)){
+									printf("invalid relational operator\n");
+									rc = INVALID_REL_OP_IN_WHERE_OF_SELECT;
 									cur->next->tok_value = INVALID;
 									return rc;
+								}
+								else{
+									int type_match = checkColType(tab_entry, cur->next->tok_string, cur->next->tok_value, where_col2);
+									if(type_match != 1){
+										printf("data type in where statement does not match column type (too long/too large)\n");
+										rc = MISMATCH_TYPE_IN_WHERE_OF_SELECT;
+										cur->next->tok_value = INVALID;
+										return rc;
+									}
 								}
 							}
 
@@ -2189,9 +2205,9 @@ int sem_delete(token_list *t_list)
 					rc = DBFILE_CORRUPTION;
 					break;
 				case 0:
-					printf("no matching rows to delete\n");
+					printf("0 rows deleted.\n");
 					rc = NO_MATCHING_ROWS_TO_DELETE;
-					cur->tok_value = INVALID;
+					//cur->tok_value = INVALID;
 					break;
 			}//printf("number rows matching to delete is %d\n", to_delete);
 		}
@@ -2443,9 +2459,9 @@ int sem_update(token_list *t_list)
 					rc = FILE_OPEN_ERROR;
 					break;
 				case 0:
-					printf("no matching rows with given value in where clause found\n");
+					//printf("0 rows updated.\n");
 					rc = NO_MATCHING_ROW_TO_UPDATE;
-					cur->tok_value = INVALID;
+					//cur->tok_value = INVALID;
 					break;
 				default:
 					;//printf("match found"); //match found - OK to update
@@ -3689,7 +3705,7 @@ int print_aggregate(tpd_entry *tab_entry, table_file_header *table_info, unsigne
 				printf("%12d|\n", 0);
 			}
 			else{
-				float avg = sum / row_cnt;
+				float avg = (float) sum / row_cnt;
 				printf("|avg(%s)",col_name);
 				for (int y = 0; y < diff; y++){
 					printf(" ");
